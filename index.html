@@ -789,13 +789,12 @@ function renderHomeGrid() {
         }
         banner = `<div class="quota-banner sev${top}">${s.ico} ${esc(s.text)}${hint ? esc(hint) : ''}</div>`;
       }
-      // 耗尽/将尽时折叠额度行：只留 banner + 底部「查看接口明细」
+      // 折叠逻辑：默认展开；耗尽/将尽/负余额时默认收拢（点击标题右侧链接切换）
       const collapsed = sevs.length && Math.max(...sevs) >= 2;
       body = `<div class="quota-row">${slots.map(it => quotaCardHtml(it, prov.id)).join('')}</div>`;
       if (!slots.some(Boolean) && !balance) {
         body = `<div class="pending-note">接口通了，但没识别到周期额度字段（见详情页 JSON）</div>`;
       }
-      if (collapsed) body = '';  // 耗尽/将尽：折叠额度行
       card.innerHTML = `
         <div class="prov-card-head">
           <span class="name">${esc(prov.name)}</span>
@@ -821,10 +820,16 @@ function renderHomeGrid() {
       <div class="prov-card-head">
         <span class="name">${esc(prov.name)}</span>
         ${badge}
-        <span class="go-detail">接口明细</span>
+        <span class="go-detail toggle-detail">接口明细</span>
       </div>
-      ${body}`;
-    card.querySelector('.go-detail').onclick = () => { enterDetail(prov.id); };
+      <div class="prov-detail-wrap">${body}</div>`;
+    const wrap = card.querySelector('.prov-detail-wrap');
+    const tg = card.querySelector('.toggle-detail');
+    tg.onclick = () => {
+      const hidden = wrap.style.display === 'none';
+      wrap.style.display = hidden ? '' : 'none';
+      tg.textContent = hidden ? '展开额度 ▾' : '接口明细';
+    };
     grid.appendChild(card);
   }
 }
@@ -896,16 +901,15 @@ function quotaCardHtml(it, provId) {
   let barArea = '';
   if (percent !== undefined) {
     const fill = `<div class="q-bar-fill ${barColor}" style="width:${Math.min(100, Math.max(0, percent))}%"></div>`;
-    if (tPct !== undefined) {
-      barArea = `
+    // 时间条恒渲染：有重置时间显示真实进度，否则 0%（保证两条始终上下对齐出现）
+    const tw = tPct !== undefined ? tPct : 0;
+    const tText = tPct !== undefined ? `时间 ${tPct}%` : '时间 --';
+    barArea = `
     <div class="q-bars">
       <div class="q-bar-row"><span class="q-ico">💲</span><div class="q-bar">${fill}</div></div>
-      <div class="q-bar-row"><span class="q-ico">🕐</span><div class="q-bar"><div class="q-bar-fill time" style="width:${tPct}%"></div></div></div>
-      <span class="q-tpct">时间 ${tPct}%</span>
+      <div class="q-bar-row"><span class="q-ico">🕐</span><div class="q-bar"><div class="q-bar-fill time" style="width:${tw}%"></div></div></div>
+      <span class="q-tpct">${tText}</span>
     </div>`;
-    } else {
-      barArea = `<div class="q-bar-row"><span class="q-ico">💲</span><div class="q-bar">${fill}</div></div>`;
-    }
   }
   const reset = (it.resetTime !== undefined && it.resetTime !== null && it.resetTime !== '')
     ? `<div class="q-reset">重置时间 ${esc(fmtReset(it.label, it.resetTime))}</div>` : '';
