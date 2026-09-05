@@ -58,7 +58,7 @@
   .home-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
   .prov-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
   .prov-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-  .prov-card-head .name { font-size: 16px; font-weight: 600; }
+  .prov-card-head .name { font-size: 20px; font-weight: 700; }
   .prov-card-head .badge { font-size: 16px; padding: 3px 9px; border-radius: 20px; background: var(--card2); color: var(--muted); border: 1px solid var(--border); }
   .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
   .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
@@ -89,7 +89,7 @@
   .prov-card .pending-note { font-size: 16px; color: var(--muted); margin-top: 8px; }
 
   /* 卡片状态标语：按最高级别给整卡定调（QuotaClock 的「钟声」） */
-  .quota-banner { display: flex; align-items: center; gap: 8px; border-radius: 10px; padding: 9px 14px; margin-bottom: 12px; font-size: 16px; border: 1px solid; flex-wrap: wrap; }
+  .quota-banner { display: inline-flex; align-items: center; gap: 6px; border-radius: 14px; padding: 3px 12px; margin-left: 6px; font-size: 14px; border: 1px solid; white-space: nowrap; }
   .quota-banner.sev0 { background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.30); color: var(--ok); }
   .quota-banner.sev1 { background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.30); color: var(--warn); }
   .quota-banner.sev2 { background: rgba(248,113,113,.08); border-color: rgba(248,113,113,.30); color: var(--err); }
@@ -760,7 +760,6 @@ function renderHomeGrid() {
       body = `<div class="err-note">${esc(first ? (first.error || '请求失败') : '未知错误')}</div>`;
     } else {
       const balance = byLabel['余额'];
-      const headRight = '';
       const slots = ['5小时', '周', '月'].map(p => byLabel[p]);
       // 有余额但某格为空时，用余额卡片填充（DeepSeek 等纯余额平台）
       if (balance) {
@@ -782,14 +781,15 @@ function renderHomeGrid() {
       }
       if (sevs.length) {
         const top = Math.max(...sevs);
-        const s = SEV[top];
+        const hasBalanceOnly = sevs.length === 1 && balanceItem && typeof balanceItem.current === 'number' && balanceItem.current <= 0;
+        const noun = hasBalanceOnly ? '余额' : '本期额度';
         let hint = '';
-        if (top === 3 && enabledProviders().length > 1) {
+        if (top === 3 && !hasBalanceOnly && enabledProviders().length > 1) {
           hint = '（多个 Coding Plan 时建议换一家用）';
         }
-        banner = `<div class="quota-banner sev${top}">${s.ico} ${esc(s.text)}${hint ? esc(hint) : ''}</div>`;
+        banner = `<span class="quota-banner sev${top}">${SEV[top].ico} ${esc(sevText(top, noun))}${hint ? esc(hint) : ''}</span>`;
       }
-      // 折叠逻辑：默认展开；耗尽/将尽/负余额时默认收拢（点击标题右侧链接切换）
+      // 折叠逻辑：默认展开；耗尽/将尽/负余额时默认收拢（点击标题右侧箭头切换）
       const collapsed = sevs.length && Math.max(...sevs) >= 2;
       body = `<div class="quota-row">${slots.map(it => quotaCardHtml(it, prov.id)).join('')}</div>`;
       if (!slots.some(Boolean) && !balance) {
@@ -799,11 +799,10 @@ function renderHomeGrid() {
         <div class="prov-card-head">
           <span class="name">${esc(prov.name)}</span>
           ${badge}
-          ${headRight}
-          <span class="go-detail toggle-detail">${collapsed ? '展开额度 ▾' : '接口明细'}</span>
+          ${banner}
+          <span class="go-detail toggle-detail">${collapsed ? '▾' : '▴'}</span>
         </div>
         <div class="prov-detail-wrap" style="${collapsed ? 'display:none' : ''}">
-          ${banner}
           ${body}
         </div>`;
       const wrap = card.querySelector('.prov-detail-wrap');
@@ -811,7 +810,7 @@ function renderHomeGrid() {
       tg.onclick = () => {
         const hidden = wrap.style.display === 'none';
         wrap.style.display = hidden ? '' : 'none';
-        tg.textContent = hidden ? '接口明细' : '展开额度 ▾';
+        tg.textContent = hidden ? '▾' : '▴';
       };
       grid.appendChild(card);
       continue;
@@ -820,7 +819,7 @@ function renderHomeGrid() {
       <div class="prov-card-head">
         <span class="name">${esc(prov.name)}</span>
         ${badge}
-        <span class="go-detail toggle-detail">接口明细</span>
+        <span class="go-detail toggle-detail">▴</span>
       </div>
       <div class="prov-detail-wrap">${body}</div>`;
     const wrap = card.querySelector('.prov-detail-wrap');
@@ -828,7 +827,7 @@ function renderHomeGrid() {
     tg.onclick = () => {
       const hidden = wrap.style.display === 'none';
       wrap.style.display = hidden ? '' : 'none';
-      tg.textContent = hidden ? '展开额度 ▾' : '接口明细';
+      tg.textContent = hidden ? '▾' : '▴';
     };
     grid.appendChild(card);
   }
@@ -851,12 +850,15 @@ function slotSeverity(percent, tPct) {
   if (rem <= 0) return 2;
   return (lead / rem) < 0.3 ? 1 : 2;
 }
-const SEV = {
-  0: { ico: '💪', text: '余量充足，加把劲干' },
-  1: { ico: '🚀', text: '节奏略快，悠着点' },
-  2: { ico: '⚠️', text: '按这节奏重置前就见底，歇歇再战' },
-  3: { ico: '🛌', text: '本期已耗尽，多休息休息' },
+const SEV = { 0: { ico: '💪' }, 1: { ico: '🚀' }, 2: { ico: '⚠️' }, 3: { ico: '🛌' } };
+// 文案模板：名词可替换（本期额度/余额），其余复用
+const SEV_TMPL = {
+  0: (n) => `${n}充足，加把劲干`,
+  1: () => `节奏略快，悠着点`,
+  2: (n) => `按这节奏，${n}在重置前就见底，歇歇再战`,
+  3: (n) => `${n}已耗尽，多休息休息`,
 };
+function sevText(sev, noun) { return SEV_TMPL[sev](noun || '本期额度'); }
 const SEV_BAR = { 0: '', 1: 'warn', 2: 'danger', 3: 'danger' };
 
 function quotaCardHtml(it, provId) {
@@ -913,7 +915,7 @@ function quotaCardHtml(it, provId) {
   }
   const reset = (it.resetTime !== undefined && it.resetTime !== null && it.resetTime !== '')
     ? `<div class="q-reset">重置时间 ${esc(fmtReset(it.label, it.resetTime))}</div>` : '';
-  const stIco = (sev !== undefined && SEV[sev]) ? `<span class="q-status" title="${esc(SEV[sev].text)}">${SEV[sev].ico}</span>` : '';
+  const stIco = (sev !== undefined && SEV[sev]) ? `<span class="q-status" title="${esc(sevText(sev))}">${SEV[sev].ico}</span>` : '';
   return `
     <div class="qcard">
       <div class="q-label">${label}${stIco}</div>
