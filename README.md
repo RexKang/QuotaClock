@@ -1,10 +1,11 @@
-# LLM 用量 Dashboard
+# LLM Meter
 
-单页多平台 LLM 用量总览，纯前端 + 可选本地 CORS 代理。
+多平台 LLM 用量总览 Dashboard，纯前端 + 可选本地 CORS 代理。
 
-![Dashboard Preview](https://img.shields.io/badge/Platform-智谱%20%7C%20DeepSeek%20%7C%20Kimi%20%7C%20OpenCode-blue)
+![Version](https://img.shields.io/badge/Version-0.1.0-orange)
+![Platform](https://img.shields.io/badge/Platform-智谱%20%7C%20DeepSeek%20%7C%20Kimi%20%7C%20OpenCode-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-brightgreen)
+![Dependencies](https://img.shields.io/badge/Dependencies-Zero-brightgreen)
 
 ## 功能
 
