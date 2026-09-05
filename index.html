@@ -63,7 +63,8 @@
   .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
   .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
   .prov-card-head .balance { margin-left: auto; font-size: 16px; color: var(--ok); font-family: var(--mono); }
-  .prov-card-head .go-detail { font-size: 16px; color: var(--accent); cursor: pointer; margin-left: auto; }
+  .prov-card-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+  .prov-card-foot .go-detail { font-size: 16px; color: var(--accent); cursor: pointer; }
   .prov-card-head .go-detail:hover { text-decoration: underline; }
   .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
   .qcard { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; font-size: 16px; }
@@ -801,10 +802,10 @@ function renderHomeGrid() {
           <span class="name">${esc(prov.name)}</span>
           ${badge}
           ${headRight}
-          <span class="go-detail">查看接口明细 →</span>
         </div>
         ${banner}
-        ${body}`;
+        ${body}
+        <div class="prov-card-foot"><span class="go-detail">查看接口明细 →</span></div>`;
       card.querySelector('.go-detail').onclick = () => { enterDetail(prov.id); };
       grid.appendChild(card);
       continue;
@@ -813,9 +814,9 @@ function renderHomeGrid() {
       <div class="prov-card-head">
         <span class="name">${esc(prov.name)}</span>
         ${badge}
-        <span class="go-detail">查看接口明细 →</span>
       </div>
-      ${body}`;
+      ${body}
+      <div class="prov-card-foot"><span class="go-detail">查看接口明细 →</span></div>`;
     card.querySelector('.go-detail').onclick = () => { enterDetail(prov.id); };
     grid.appendChild(card);
   }
