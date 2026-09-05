@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CodingPlanDashboard · 多平台用量 Dashboard</title>
+<title>QuotaClock · 多平台用量 Dashboard</title>
 <style>
   :root {
     --bg: #0f1117;
@@ -74,11 +74,11 @@
   .q-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), #7db4ff); transition: width .5s; }
   .q-bar-fill.warn { background: linear-gradient(90deg, var(--warn), #fcd34d); }
   .q-bar-fill.danger { background: linear-gradient(90deg, var(--err), #fca5a5); }
-  /* 双进度条：左侧额度使用，右侧时间进度 */
-  .q-bars { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
-  .q-bars .q-bar { flex: 1; margin-bottom: 0; }
+  /* 双进度条：上下两行——上行额度使用（蓝/黄/红），下行时间进度（绿），等宽对齐 */
+  .q-bars { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .q-bars .q-bar { width: 100%; margin-bottom: 0; }
   .q-bar-fill.time { background: linear-gradient(90deg, #10b981, #34d399); }
-  .q-tpct { font-size: 16px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+  .q-tpct { font-size: 16px; color: var(--muted); font-family: var(--mono); white-space: nowrap; text-align: right; }
   .qcard .q-val { font-size: 16px; font-family: var(--mono); color: var(--text); margin-bottom: 6px; }
   .qcard .q-reset { font-size: 16px; color: var(--warn); font-family: var(--mono); }
   .qcard.empty .q-percent { color: var(--muted); font-size: 20px; }
@@ -157,7 +157,7 @@
 <body>
 
 <header>
-  <h1>CodingPlanDashboard<small>v0.1.0 · 多平台额度总览 · localStorage 持久化</small></h1>
+  <h1>QuotaClock<small>v0.1.0 · 多平台额度总览 · localStorage 持久化</small></h1>
   <div class="nav-tabs">
     <button id="tabHome" class="active">总览</button>
     <button id="tabDetail">详情</button>
@@ -824,7 +824,7 @@ function quotaCardHtml(it, provId) {
     valText = parts.join('，');
   }
   const barColor = percent >= 90 ? 'danger' : (percent >= 70 ? 'warn' : '');
-  // 双进度条：左 = 额度使用（现有逻辑），右 = 时间进度（按槽位窗口计算）
+  // 双进度条：上 = 额度使用（蓝/黄/红），下 = 时间进度（绿），等宽上下对齐
   const tPct = timeProgress(it.label, it.resetTime);
   let barArea = '';
   if (percent !== undefined) {
