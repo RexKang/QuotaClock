@@ -67,7 +67,8 @@
   .prov-card-head .go-detail:hover { text-decoration: underline; }
   .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
   .qcard { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; font-size: 16px; }
-  .qcard .q-label { font-size: 16px; color: var(--muted); margin-bottom: 8px; }
+  .qcard .q-label { font-size: 16px; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; }
+  .qcard .q-status { margin-left: auto; font-size: 14px; }
   .qcard .q-percent { font-size: 28px; font-weight: 700; font-family: var(--mono); line-height: 1.1; margin-bottom: 10px; }
   .qcard .q-percent .pct { font-size: 16px; color: var(--muted); font-weight: 400; }
   .q-bar { height: 8px; background: #0d0f16; border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
@@ -86,6 +87,15 @@
   .qcard.empty .q-percent { color: var(--muted); font-size: 20px; }
   .prov-card .err-note { font-size: 16px; color: var(--err); margin-top: 8px; }
   .prov-card .pending-note { font-size: 16px; color: var(--muted); margin-top: 8px; }
+
+  /* 卡片状态标语：按最高级别给整卡定调（QuotaClock 的「钟声」） */
+  .quota-banner { display: flex; align-items: center; gap: 8px; border-radius: 10px; padding: 9px 14px; margin-bottom: 12px; font-size: 16px; border: 1px solid; flex-wrap: wrap; }
+  .quota-banner.sev0 { background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.30); color: var(--ok); }
+  .quota-banner.sev1 { background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.30); color: var(--warn); }
+  .quota-banner.sev2 { background: rgba(248,113,113,.08); border-color: rgba(248,113,113,.30); color: var(--err); }
+  .quota-banner.sev3 { background: rgba(248,113,113,.16); border-color: rgba(248,113,113,.45); color: var(--err); font-weight: 600; }
+  .quota-banner .sw { cursor: pointer; background: var(--card2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px; color: var(--text); font-weight: 400; }
+  .quota-banner .sw:hover { border-color: var(--accent); color: var(--accent); }
 
   /* 详情页 */
   .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
@@ -760,6 +770,37 @@ function renderHomeGrid() {
           if (!slots[i]) { slots[i] = balance; break; }
         }
       }
+      // 平台级标语：取三槽位最高级别；已耗尽时建议切换其他健康平台（QuotaClock 钟声）
+      let banner = '';
+      const sevs = slots.map(it => it ? slotSeverity(
+        it.label === '余额' ? undefined : (it.percentage !== undefined ? it.percentage
+          : (typeof it.current === 'number' && typeof it.total === 'number' && it.total > 0 ? Math.round(it.current / it.total * 100) : undefined)),
+        timeProgress(it.label, it.resetTime)
+      ) : undefined).filter(s => s !== undefined);
+      if (sevs.length) {
+        const top = Math.max(...sevs);
+        const s = SEV[top];
+        let swHtml = '';
+        if (top === 3) {
+          const others = enabledProviders()
+            .filter(p => p.id !== prov.id)
+            .map(p => {
+              const psevs = [];
+              for (const it2 of extractQuotaItems(p)) {
+                if (it2.label === '余额') continue;
+                const p2 = it2.percentage !== undefined ? it2.percentage
+                  : (typeof it2.current === 'number' && typeof it2.total === 'number' && it2.total > 0 ? Math.round(it2.current / it2.total * 100) : undefined);
+                if (p2 !== undefined) psevs.push(slotSeverity(p2, timeProgress(it2.label, it2.resetTime)));
+              }
+              return { p, best: psevs.length ? Math.min(...psevs) : undefined };
+            })
+            .filter(x => x.best === 0);
+          if (others.length) {
+            swHtml = '<span class="sw" data-goto="' + esc(others[0].p.id) + '">→ 切到「' + esc(others[0].p.name) + '」</span>';
+          }
+        }
+        banner = `<div class="quota-banner sev${top}">${s.ico} ${esc(s.text)}${swHtml}</div>`;
+      }
       body = `<div class="quota-row">${slots.map(it => quotaCardHtml(it, prov.id)).join('')}</div>`;
       if (!slots.some(Boolean) && !balance) {
         body = `<div class="pending-note">接口通了，但没识别到周期额度字段（见详情页 JSON）</div>`;
@@ -771,7 +812,10 @@ function renderHomeGrid() {
           ${headRight}
           <span class="go-detail">查看接口明细 →</span>
         </div>
+        ${banner}
         ${body}`;
+      const sw = card.querySelector('.sw');
+      if (sw) sw.onclick = () => { enterDetail(sw.dataset.goto); };
       card.querySelector('.go-detail').onclick = () => { enterDetail(prov.id); };
       grid.appendChild(card);
       continue;
@@ -790,6 +834,29 @@ function renderHomeGrid() {
 
 const QUOTA_SLOT_LABEL = { '5小时': '每5小时使用额度', '周': '每周使用额度', '月': '每月使用额度', '余额': '账户余额' };
 const MODEL_CODE_NAMES = { 'search-prime': '网络搜索', 'web-reader': '网页读取', 'zread': '开源仓库' };
+
+/* 槽位状态定级（QuotaClock 钟声）：
+   3 = 已耗尽（≥100%，该歇歇了）  2 = 将尽（领先且领先/剩余≥30%）
+   1 = 偏快（领先且 <30%）       0 = 充足（用量 ≤ 时间进度）
+   无时间基准时退回绝对阈值；不可判定返回 undefined（不参与定级） */
+function slotSeverity(percent, tPct) {
+  if (percent === undefined || percent === null) return undefined;
+  if (percent >= 100) return 3;
+  if (tPct === undefined) return percent >= 90 ? 2 : (percent >= 70 ? 1 : 0);
+  const lead = percent - tPct;
+  if (lead <= 0) return 0;
+  const rem = 100 - tPct;
+  if (rem <= 0) return 2;
+  return (lead / rem) < 0.3 ? 1 : 2;
+}
+const SEV = {
+  0: { ico: '💪', text: '余量充足，加把劲干' },
+  1: { ico: '🚀', text: '节奏略快，悠着点' },
+  2: { ico: '⚠️', text: '按这节奏重置前就见底，歇歇再战' },
+  3: { ico: '🛌', text: '本期已耗尽，多休息休息' },
+};
+const SEV_BAR = { 0: '', 1: 'warn', 2: 'danger', 3: 'danger' };
+
 function quotaCardHtml(it, provId) {
   if (!it) {
     return `<div class="qcard empty"><div class="q-percent">--</div></div>`;
@@ -825,22 +892,10 @@ function quotaCardHtml(it, provId) {
     for (const d of it.details) parts.push((MODEL_CODE_NAMES[d.code] || d.code) + ' ' + fmtNum(d.usage));
     valText = parts.join('，');
   }
-  // 颜色判定：用量 vs 时间进度（QuotaClock 语义：省着用=绿，要超=黄/红）
-  //   用量 ≤ 时间 → 绿；领先时按 领先值/时间剩余：<30% 黄（可控），≥30% 红（即将耗尽）
-  //   例：用量80、时间70 → 领先10 / 剩余30 = 33% → 红
+  // 颜色判定：复用 slotSeverity（与 banner 同源，保证进度条颜色和标语一致）
   const tPct = timeProgress(it.label, it.resetTime);
-  let barColor;
-  if (tPct === undefined) {
-    // 无时间基准时退回绝对阈值
-    barColor = percent >= 90 ? 'danger' : (percent >= 70 ? 'warn' : '');
-  } else {
-    const lead = percent - tPct;
-    if (lead <= 0) barColor = '';
-    else {
-      const rem = 100 - tPct;
-      barColor = rem <= 0 ? 'danger' : ((lead / rem) < 0.3 ? 'warn' : 'danger');
-    }
-  }
+  const sev = slotSeverity(percent, tPct);
+  const barColor = sev === undefined ? '' : SEV_BAR[sev];
   let barArea = '';
   if (percent !== undefined) {
     const fill = `<div class="q-bar-fill ${barColor}" style="width:${Math.min(100, Math.max(0, percent))}%"></div>`;
@@ -857,9 +912,10 @@ function quotaCardHtml(it, provId) {
   }
   const reset = (it.resetTime !== undefined && it.resetTime !== null && it.resetTime !== '')
     ? `<div class="q-reset">重置时间 ${esc(fmtReset(it.label, it.resetTime))}</div>` : '';
+  const stIco = (sev !== undefined && SEV[sev]) ? `<span class="q-status" title="${esc(SEV[sev].text)}">${SEV[sev].ico}</span>` : '';
   return `
     <div class="qcard">
-      <div class="q-label">${label}</div>
+      <div class="q-label">${label}${stIco}</div>
       <div class="q-percent">${percent !== undefined ? percent + '<span class="pct">%</span>' : '--'}</div>
       ${barArea}
       ${hasNum ? `<div class="q-val">${esc(valText)}</div>` : ''}
