@@ -63,8 +63,7 @@
   .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
   .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
   .prov-card-head .balance { margin-left: auto; font-size: 16px; color: var(--ok); font-family: var(--mono); }
-  .prov-card-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
-  .prov-card-foot .go-detail { font-size: 16px; color: var(--accent); cursor: pointer; }
+  .prov-card-head .go-detail { font-size: 16px; color: var(--accent); cursor: pointer; margin-left: auto; white-space: nowrap; }
   .prov-card-head .go-detail:hover { text-decoration: underline; }
   .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
   .qcard { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; font-size: 16px; }
@@ -796,17 +795,25 @@ function renderHomeGrid() {
       if (!slots.some(Boolean) && !balance) {
         body = `<div class="pending-note">接口通了，但没识别到周期额度字段（见详情页 JSON）</div>`;
       }
-      if (collapsed) body = '';  // 耗尽/将尽：折叠额度行，只留 banner
+      if (collapsed) body = '';  // 耗尽/将尽：折叠额度行
       card.innerHTML = `
         <div class="prov-card-head">
           <span class="name">${esc(prov.name)}</span>
           ${badge}
           ${headRight}
+          <span class="go-detail toggle-detail">${collapsed ? '展开额度 ▾' : '接口明细'}</span>
         </div>
-        ${banner}
-        ${body}
-        <div class="prov-card-foot"><span class="go-detail">查看接口明细 →</span></div>`;
-      card.querySelector('.go-detail').onclick = () => { enterDetail(prov.id); };
+        <div class="prov-detail-wrap" style="${collapsed ? 'display:none' : ''}">
+          ${banner}
+          ${body}
+        </div>`;
+      const wrap = card.querySelector('.prov-detail-wrap');
+      const tg = card.querySelector('.toggle-detail');
+      tg.onclick = () => {
+        const hidden = wrap.style.display === 'none';
+        wrap.style.display = hidden ? '' : 'none';
+        tg.textContent = hidden ? '接口明细' : '展开额度 ▾';
+      };
       grid.appendChild(card);
       continue;
     }
@@ -814,9 +821,9 @@ function renderHomeGrid() {
       <div class="prov-card-head">
         <span class="name">${esc(prov.name)}</span>
         ${badge}
+        <span class="go-detail">接口明细</span>
       </div>
-      ${body}
-      <div class="prov-card-foot"><span class="go-detail">查看接口明细 →</span></div>`;
+      ${body}`;
     card.querySelector('.go-detail').onclick = () => { enterDetail(prov.id); };
     grid.appendChild(card);
   }
