@@ -785,11 +785,7 @@ function renderHomeGrid() {
         const top = Math.max(...sevs);
         const hasBalanceOnly = sevs.length === 1 && balanceItem && typeof balanceItem.current === 'number' && balanceItem.current <= 0;
         const noun = hasBalanceOnly ? '余额' : '本期额度';
-        let hint = '';
-        if (top === 3 && !hasBalanceOnly && enabledProviders().length > 1) {
-          hint = '（多个 Coding Plan 时建议换一家用）';
-        }
-        banner = `<span class="quota-banner sev${top}">${SEV[top].ico} ${esc(sevText(top, noun))}${hint ? esc(hint) : ''}</span>`;
+        banner = `<span class="quota-banner sev${top}">${SEV[top].ico} ${esc(sevText(top, noun))}</span>`;
       }
       // 折叠逻辑：默认展开；耗尽/将尽/负余额时默认收拢（点击标题右侧箭头切换）
       const collapsed = sevs.length && Math.max(...sevs) >= 2;
@@ -853,14 +849,24 @@ function slotSeverity(percent, tPct) {
   return (lead / rem) < 0.3 ? 1 : 2;
 }
 const SEV = { 0: { ico: '💪' }, 1: { ico: '🚀' }, 2: { ico: '⚠️' }, 3: { ico: '🛌' } };
-// 文案模板：名词可替换（本期额度/余额），其余复用
+// 文案模板：名词可替换（本期额度/余额），同级多组随机挑选，组合出不同说法
 const SEV_TMPL = {
-  0: (n) => `${n}充足，加把劲干`,
-  1: () => `节奏略快，悠着点`,
-  2: (n) => `按这节奏，${n}在重置前就见底，歇歇再战`,
-  3: (n) => `${n}已耗尽，多休息休息`,
+  0: [(n) => `${n}充足，加把劲干`],
+  1: [() => `节奏略快，悠着点`],
+  2: [(n) => `按这节奏，${n}在重置前就见底，歇歇再战`],
+  3: [
+    (n) => `${n}已耗尽，多休息休息`,
+    (n) => `${n}已经耗尽，喝杯茶休息下吧`,
+    (n) => `${n}用完了，先歇口气`,
+    (n) => `${n}见底了，起来走动走动`,
+    (n) => `${n}清零，趁重置前摸会儿鱼`,
+  ],
 };
-function sevText(sev, noun) { return SEV_TMPL[sev](noun || '本期额度'); }
+function sevText(sev, noun) {
+  const arr = SEV_TMPL[sev];
+  const t = arr[Math.floor(Math.random() * arr.length)];
+  return t(noun || '本期额度');
+}
 const SEV_BAR = { 0: '', 1: 'warn', 2: 'danger', 3: 'danger' };
 
 function quotaCardHtml(it, provId) {
