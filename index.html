@@ -63,7 +63,7 @@
   .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
   .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
   .prov-card-head .balance { margin-left: auto; font-size: 16px; color: var(--ok); font-family: var(--mono); }
-  .prov-card-head .go-detail { font-size: 16px; color: var(--accent); cursor: pointer; }
+  .prov-card-head .go-detail { font-size: 16px; color: var(--accent); cursor: pointer; margin-left: auto; }
   .prov-card-head .go-detail:hover { text-decoration: underline; }
   .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
   .qcard { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; font-size: 16px; }
@@ -94,8 +94,6 @@
   .quota-banner.sev1 { background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.30); color: var(--warn); }
   .quota-banner.sev2 { background: rgba(248,113,113,.08); border-color: rgba(248,113,113,.30); color: var(--err); }
   .quota-banner.sev3 { background: rgba(248,113,113,.16); border-color: rgba(248,113,113,.45); color: var(--err); font-weight: 600; }
-  .quota-banner .sw { cursor: pointer; background: var(--card2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px; color: var(--text); font-weight: 400; }
-  .quota-banner .sw:hover { border-color: var(--accent); color: var(--accent); }
 
   /* 详情页 */
   .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
@@ -770,41 +768,34 @@ function renderHomeGrid() {
           if (!slots[i]) { slots[i] = balance; break; }
         }
       }
-      // 平台级标语：取三槽位最高级别；已耗尽时建议切换其他健康平台（QuotaClock 钟声）
+      // 平台级标语：取三槽位最高级别；已耗尽时提示切换其他平台（QuotaClock 钟声，纯提醒）
       let banner = '';
       const sevs = slots.map(it => it ? slotSeverity(
         it.label === '余额' ? undefined : (it.percentage !== undefined ? it.percentage
           : (typeof it.current === 'number' && typeof it.total === 'number' && it.total > 0 ? Math.round(it.current / it.total * 100) : undefined)),
         timeProgress(it.label, it.resetTime)
       ) : undefined).filter(s => s !== undefined);
+      // DeepSeek 等纯余额平台：负余额=耗尽
+      const balanceItem = slots.find(it => it && it.label === '余额');
+      if (balanceItem && typeof balanceItem.current === 'number' && balanceItem.current <= 0 && sevs.length === 0) {
+        sevs.push(3);
+      }
       if (sevs.length) {
         const top = Math.max(...sevs);
         const s = SEV[top];
-        let swHtml = '';
-        if (top === 3) {
-          const others = enabledProviders()
-            .filter(p => p.id !== prov.id)
-            .map(p => {
-              const psevs = [];
-              for (const it2 of extractQuotaItems(p)) {
-                if (it2.label === '余额') continue;
-                const p2 = it2.percentage !== undefined ? it2.percentage
-                  : (typeof it2.current === 'number' && typeof it2.total === 'number' && it2.total > 0 ? Math.round(it2.current / it2.total * 100) : undefined);
-                if (p2 !== undefined) psevs.push(slotSeverity(p2, timeProgress(it2.label, it2.resetTime)));
-              }
-              return { p, best: psevs.length ? Math.min(...psevs) : undefined };
-            })
-            .filter(x => x.best === 0);
-          if (others.length) {
-            swHtml = '<span class="sw" data-goto="' + esc(others[0].p.id) + '">→ 切到「' + esc(others[0].p.name) + '」</span>';
-          }
+        let hint = '';
+        if (top === 3 && enabledProviders().length > 1) {
+          hint = '（多个 Coding Plan 时建议换一家用）';
         }
-        banner = `<div class="quota-banner sev${top}">${s.ico} ${esc(s.text)}${swHtml}</div>`;
+        banner = `<div class="quota-banner sev${top}">${s.ico} ${esc(s.text)}${hint ? esc(hint) : ''}</div>`;
       }
+      // 耗尽/将尽时折叠额度行：只留 banner + 底部「查看接口明细」
+      const collapsed = sevs.length && Math.max(...sevs) >= 2;
       body = `<div class="quota-row">${slots.map(it => quotaCardHtml(it, prov.id)).join('')}</div>`;
       if (!slots.some(Boolean) && !balance) {
         body = `<div class="pending-note">接口通了，但没识别到周期额度字段（见详情页 JSON）</div>`;
       }
+      if (collapsed) body = '';  // 耗尽/将尽：折叠额度行，只留 banner
       card.innerHTML = `
         <div class="prov-card-head">
           <span class="name">${esc(prov.name)}</span>
@@ -814,8 +805,6 @@ function renderHomeGrid() {
         </div>
         ${banner}
         ${body}`;
-      const sw = card.querySelector('.sw');
-      if (sw) sw.onclick = () => { enterDetail(sw.dataset.goto); };
       card.querySelector('.go-detail').onclick = () => { enterDetail(prov.id); };
       grid.appendChild(card);
       continue;
