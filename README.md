@@ -1,4 +1,4 @@
-# LLM Meter
+# CodingPlanDashboard
 
 多平台 LLM 用量总览 Dashboard，纯前端 + 可选本地 CORS 代理。
 
