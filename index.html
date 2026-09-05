@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM 用量 Dashboard · 多平台</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #171a23;
+    --card2: #1d2130;
+    --border: #262b3b;
+    --text: #e6e9f2;
+    --muted: #8b93a7;
+    --accent: #4f7cff;
+    --ok: #34d399;
+    --err: #f87171;
+    --warn: #fbbf24;
+    --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 24px; min-height: 100vh;
+  }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 19px; font-weight: 600; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 16px; margin-left: 8px; }
+
+  .nav-tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
+  .nav-tabs button { background: none; border: none; color: var(--muted); padding: 7px 16px; border-radius: 7px; cursor: pointer; font-size: 16px; }
+  .nav-tabs button.active { background: var(--accent); color: #fff; }
+
+  select, input[type=text], input[type=password], textarea {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 9px 12px; font-size: 16px;
+    font-family: var(--mono); outline: none;
+  }
+  select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 9px 16px; font-size: 16px; cursor: pointer; font-weight: 500;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: var(--card2); border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: #7f1d1d; }
+
+  .status-line { color: var(--muted); font-size: 16px; margin-bottom: 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .status-line .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+  .status-line .dot.ok { background: var(--ok); }
+  .status-line .dot.err { background: var(--err); }
+  .status-line .dot.run { background: var(--warn); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  /* 首页：平台额度总览（每平台一行，行内 5小时/周/月 三卡） */
+  .home-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .prov-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+  .prov-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .prov-card-head .name { font-size: 16px; font-weight: 600; }
+  .prov-card-head .badge { font-size: 16px; padding: 3px 9px; border-radius: 20px; background: var(--card2); color: var(--muted); border: 1px solid var(--border); }
+  .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
+  .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
+  .prov-card-head .balance { margin-left: auto; font-size: 16px; color: var(--ok); font-family: var(--mono); }
+  .prov-card-head .go-detail { font-size: 16px; color: var(--accent); cursor: pointer; }
+  .prov-card-head .go-detail:hover { text-decoration: underline; }
+  .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .qcard { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; font-size: 16px; }
+  .qcard .q-label { font-size: 16px; color: var(--muted); margin-bottom: 8px; }
+  .qcard .q-percent { font-size: 28px; font-weight: 700; font-family: var(--mono); line-height: 1.1; margin-bottom: 10px; }
+  .qcard .q-percent .pct { font-size: 16px; color: var(--muted); font-weight: 400; }
+  .q-bar { height: 8px; background: #0d0f16; border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+  .q-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), #7db4ff); transition: width .5s; }
+  .q-bar-fill.warn { background: linear-gradient(90deg, var(--warn), #fcd34d); }
+  .q-bar-fill.danger { background: linear-gradient(90deg, var(--err), #fca5a5); }
+  /* 双进度条：左侧额度使用，右侧时间进度 */
+  .q-bars { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .q-bars .q-bar { flex: 1; margin-bottom: 0; }
+  .q-bar-fill.time { background: linear-gradient(90deg, #10b981, #34d399); }
+  .q-tpct { font-size: 16px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+  .qcard .q-val { font-size: 16px; font-family: var(--mono); color: var(--text); margin-bottom: 6px; }
+  .qcard .q-reset { font-size: 16px; color: var(--warn); font-family: var(--mono); }
+  .qcard.empty .q-percent { color: var(--muted); font-size: 20px; }
+  .prov-card .err-note { font-size: 16px; color: var(--err); margin-top: 8px; }
+  .prov-card .pending-note { font-size: 16px; color: var(--muted); margin-top: 8px; }
+
+  /* 详情页 */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .kpi .label { font-size: 16px; color: var(--muted); margin-bottom: 6px; word-break: break-all; }
+  .kpi .value { font-size: 22px; font-weight: 700; font-family: var(--mono); }
+
+  .endpoints { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; }
+  .ep { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .ep-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; user-select: none; }
+  .ep-head:hover { background: var(--card2); }
+  .ep-method { font-size: 16px; font-weight: 700; padding: 3px 7px; border-radius: 5px; background: #1e3a5f; color: #7db4ff; font-family: var(--mono); }
+  .ep-path { font-family: var(--mono); font-size: 16px; flex: 1; word-break: break-all; }
+  .ep-status { font-size: 16px; font-family: var(--mono); }
+  .ep-status.ok { color: var(--ok); }
+  .ep-status.err { color: var(--err); }
+  .ep-status.pending { color: var(--muted); }
+  .ep-status.timeout { color: var(--warn); }
+  .ep-body { padding: 12px 14px; border-top: 1px solid var(--border); display: none; }
+  .ep.open .ep-body { display: block; }
+  pre { font-family: var(--mono); font-size: 16px; line-height: 1.55; white-space: pre-wrap; word-break: break-all; color: #c8d0e0; max-height: 420px; overflow: auto; }
+
+  .hint { background: var(--card2); border: 1px dashed var(--border); border-radius: 10px; padding: 13px 16px; font-size: 16px; color: var(--muted); line-height: 1.7; margin-bottom: 18px; }
+  .hint code { background: #0d0f16; padding: 2px 6px; border-radius: 5px; font-family: var(--mono); font-size: 16px; color: var(--text); }
+  .empty { color: var(--muted); text-align: center; padding: 60px 0; font-size: 16px; }
+
+  /* Modal */
+  .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-start; justify-content: center; z-index: 50; padding: 40px 16px; overflow: auto; }
+  .modal-mask.open { display: flex; }
+  .modal { background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: 900px; max-width: 100%; padding: 20px; }
+  .modal h2 { font-size: 16px; margin-bottom: 14px; }
+  .modal-grid { display: grid; grid-template-columns: 210px 1fr; gap: 16px; }
+  .prov-list { border-right: 1px solid var(--border); padding-right: 14px; }
+  .prov-item { padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 16px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .prov-item:hover { background: var(--card2); }
+  .prov-item.active { background: var(--accent); color: #fff; }
+  .prov-item.disabled { opacity: .55; }
+  .prov-item .prov-toggle { cursor: pointer; color: var(--ok); font-size: 16px; margin-right: 8px; }
+  .prov-item.disabled .prov-toggle { color: var(--muted); }
+  .prov-item .prov-name { flex: 1; word-break: break-all; }
+  .prov-item .del { opacity: 0; font-size: 16px; padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.25); }
+  .prov-item:hover .del { opacity: 1; }
+  .form-row { margin-bottom: 12px; }
+  .form-row label { display: block; font-size: 16px; color: var(--muted); margin-bottom: 5px; }
+  .form-row input, .form-row textarea { width: 100%; }
+  .form-row textarea { min-height: 60px; resize: vertical; font-family: var(--mono); font-size: 16px; }
+  .ep-edit-table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  .ep-edit-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 16px; }
+  .ep-edit-table td { padding: 5px 8px; border-bottom: 1px solid #1a1e2a; vertical-align: middle; }
+  .ep-edit-table input { width: 100%; padding: 6px 8px; font-size: 16px; border-radius: 6px; }
+  .ep-edit-table .method-sel { width: 74px; padding: 6px 4px; font-size: 16px; }
+  .ep-edit-table .del-ep { background: none; border: none; color: var(--err); cursor: pointer; font-size: 16px; padding: 4px 8px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
+  .modal-actions .spacer { flex: 1; }
+  .test-area { display: none; margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 12px; }
+  .test-area.open { display: block; }
+  .test-head { font-size: 16px; margin-bottom: 8px; font-weight: 600; }
+  .test-head.ok { color: var(--ok); }
+  .test-head.err { color: var(--err); }
+  .test-row { display: flex; justify-content: space-between; gap: 10px; font-family: var(--mono); font-size: 16px; padding: 3px 0; }
+  .test-path { word-break: break-all; color: var(--text); }
+  .test-status.ok { color: var(--ok); }
+  .test-status.err { color: var(--err); }
+  .import-area { display: none; margin-top: 12px; }
+  .import-area.open { display: block; }
+  .import-area textarea { width: 100%; min-height: 140px; font-size: 16px; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 10px; font-size: 16px; z-index: 99; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LLM 用量 Dashboard<small>多平台额度总览 · localStorage 持久化</small></h1>
+  <div class="nav-tabs">
+    <button id="tabHome" class="active">总览</button>
+    <button id="tabDetail">详情</button>
+  </div>
+  <div style="flex:1"></div>
+  <select id="providerSel" title="切换平台" style="display:none"></select>
+  <button id="refreshBtn">刷新</button>
+  <button id="settingsBtn" class="ghost">设置</button>
+</header>
+
+<div id="viewHome">
+  <div class="status-line">
+    <span id="connHome"><span class="dot"></span>未连接</span>
+    <span id="elapsedHome"></span>
+  </div>
+  <div id="homeGrid" class="home-grid"></div>
+  <div id="emptyHome" class="empty">还没有已配置 token 的平台。到「设置」里填一个平台的 token，回到总览刷新即可~</div>
+</div>
+
+<div id="viewDetail" style="display:none">
+  <div class="status-line">
+    <span id="connDetail"><span class="dot"></span>未连接</span>
+    <span id="elapsedDetail"></span>
+    <span id="tokenWho"></span>
+  </div>
+  <div id="hintBox" class="hint" style="display:none"></div>
+  <div id="kpis" class="kpis"></div>
+  <div id="endpoints" class="endpoints"></div>
+</div>
+
+<!-- 设置弹窗 -->
+<div class="modal-mask" id="settingsModal">
+  <div class="modal">
+    <h2>平台配置</h2>
+    <div class="modal-grid">
+      <div class="prov-list">
+        <div id="provItems"></div>
+        <button id="addProvBtn" class="ghost" style="width:100%; margin-top:4px">+ 添加平台</button>
+      </div>
+      <div>
+        <div class="form-row">
+          <label>平台名称</label>
+          <input type="text" id="fName">
+        </div>
+        <div class="form-row">
+          <label>Base URL（API 网关地址，不含路径）</label>
+          <input type="text" id="fBase">
+        </div>
+        <div class="form-row">
+          <label>Token（Bearer 鉴权；智谱填控制台登录 token，DeepSeek/Kimi 填 API Key）</label>
+          <input type="password" id="fToken" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label>Token 获取说明（显示在详情页提示）</label>
+          <textarea id="fNote"></textarea>
+        </div>
+        <div class="form-row">
+          <label>接口列表（method + 路径，相对 baseURL；参数可填 JSON，如 {"type":2}）</label>
+          <table class="ep-edit-table">
+            <thead><tr><th style="width:74px">Method</th><th>Path</th><th style="width:110px">参数(JSON)</th><th>备注</th><th style="width:36px"></th></tr></thead>
+            <tbody id="epRows"></tbody>
+          </table>
+          <button id="addEpBtn" class="ghost" style="margin-top:8px">+ 添加接口</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="saveBtn">保存</button>
+      <button id="testBtn" class="ghost">测试连接</button>
+      <button id="delProvBtn" class="danger">删除该平台</button>
+      <span class="spacer"></span>
+      <button id="exportBtn" class="ghost">导出 JSON（下载）</button>
+      <button id="copyBtn" class="ghost">复制 JSON</button>
+      <button id="importBtn" class="ghost">导入 JSON</button>
+      <button id="closeModalBtn" class="ghost">关闭</button>
+    </div>
+    <div class="test-area" id="testArea"><div id="testResult"></div></div>
+    <div class="import-area" id="importArea">
+      <textarea id="importText" placeholder='粘贴 JSON 配置，例如：{"version":2,"active":"zhipu","providers":[...]}'></textarea>
+      <div style="margin-top:8px; display:flex; gap:8px">
+        <button id="importOkBtn">确认导入（覆盖现有配置）</button>
+        <button id="importCancelBtn" class="ghost">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const LS_KEY = 'llm_dash_config';
+let config = null;        // {version, active, providers: [...]}
+let state = {};           // state[providerId][epId] = {ok, status, ms, data, error, timeout}
+let allOpen = false;
+let editingId = null;
+let view = 'home';        // 'home' | 'detail'
+let homeLoading = false;  // 首页刷新进行中（用于卡片「加载中」提示）
+
+const $ = s => document.querySelector(s);
+
+/* ---------- 默认配置 ---------- */
+function defaultConfig() {
+  return {
+    version: 2,
+    active: 'zhipu',
+    providers: [
+      {
+        enabled: true,
+        id: 'zhipu', name: '智谱 GLM', baseURL: 'https://open.bigmodel.cn',
+        token: '',
+        note: '登录 open.bigmodel.cn 后 F12 → Network → 点任意 /api/biz/... 请求 → 复制 Authorization 头的 Bearer 值',
+        endpoints: [
+          { method: 'GET', path: '/api/monitor/usage/quota/limit', params: '{"type":2}', note: '周期额度：5小时/每周/MCP每月 的 percentage + nextResetTime（核心，仅此一个即可）' },
+        ],
+      },
+      {
+        enabled: true,
+        id: 'deepseek', name: 'DeepSeek', baseURL: 'https://api.deepseek.com',
+        token: '',
+        note: '用 API Key（sk-...），官方公开的余额查询接口',
+        endpoints: [
+          { method: 'GET', path: '/user/balance', note: '余额（官方公开）' },
+        ],
+      },
+      {
+        enabled: true,
+        id: 'moonshot', name: 'Kimi Code', baseURL: 'http://127.0.0.1:8787/kimi',
+        token: '',
+        note: 'api.kimi.com 不支持跨域，必须经本机代理（python llm-proxy.py）。Token 填 Kimi Code 的 API Key（platform.kimi.com 申请）。周期额度查询走 /usages（5小时/周/月窗口），官方 CLI 同款接口',
+        endpoints: [
+          { method: 'GET', path: '/usages', note: '周期额度：usage 汇总 + limits 各周期窗口（5小时/周/月），含 used/limit/reset_at（核心）' },
+          { method: 'GET', path: '/me', note: '账户信息' },
+          { method: 'GET', path: '/models', note: '模型列表（验证 key 有效性）' },
+        ],
+      },
+      {
+        enabled: true,
+        id: 'opencode', name: 'OpenCode Go', baseURL: 'http://127.0.0.1:8787/opencode',
+        token: '',
+        note: 'opencode.ai 不支持跨域，必须经本机代理（python llm-proxy.py）。Token 填 opencode.ai 的登录 Cookie（F12 → Network → 复制 /_server 请求头里的 Cookie 值）。server function id 若随部署变化，重新从 Network 复制 path',
+        endpoints: [
+          { method: 'GET', path: '/_server?id=c7389bd0e731f80f49593e5ee53835475f4e28594dd6bd83eb229bab753498cd&args=%7B%22t%22%3A%7B%22t%22%3A9%2C%22i%22%3A0%2C%22l%22%3A1%2C%22a%22%3A%5B%7B%22t%22%3A1%2C%22s%22%3A%22wrk_01KSEVHTBGFRSVTVPWESG07MPB%22%7D%5D%2C%22o%22%3A0%7D%2C%22f%22%3A31%2C%22m%22%3A%5B%5D%7D', note: 'Go 套餐用量：rollingUsage(5小时)/weeklyUsage/monthlyUsage 的 usagePercent + resetInSec' },
+        ],
+      },
+    ],
+  };
+}
+
+/* ---------- 持久化 ---------- */
+function loadConfig() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const c = JSON.parse(raw);
+      if (c && Array.isArray(c.providers) && c.providers.length) {
+        const def = defaultConfig();
+        for (const dp of def.providers) {
+          const p = c.providers.find(x => x.id === dp.id);
+          if (!p) continue;
+          // 迁移：老 Kimi (moonshot.cn) 平台 → Kimi Code (api.kimi.com/coding/v1)
+          if (p.id === 'moonshot' && p.baseURL && p.baseURL.indexOf('moonshot.cn') >= 0 && !(p.endpoints || []).some(ep => ep.path === '/usages')) {
+            p.baseURL = 'https://api.kimi.com/coding/v1';
+            p.name = 'Kimi Code';
+            p.note = dp.note;
+            p.endpoints = dp.endpoints.map(ep => Object.assign({}, ep));
+            continue;
+          }
+          // 收敛：智谱只保留 quota/limit（用户确认仅此接口即可）
+          if (p.id === 'zhipu' && p.endpoints && p.endpoints.length > 1) {
+            p.endpoints = dp.endpoints.map(ep => Object.assign({}, ep));
+            continue;
+          }
+          // 迁移：Kimi/OpenCode 走本机代理（CORS 不通），baseURL 加前缀
+          const PROXY_BASE = 'http://127.0.0.1:8787';
+          if (p.id === 'moonshot' && p.baseURL && p.baseURL.indexOf('api.kimi.com') >= 0) {
+            p.baseURL = PROXY_BASE + '/kimi';
+          }
+          if (p.id === 'opencode' && p.baseURL && p.baseURL === PROXY_BASE) {
+            p.baseURL = PROXY_BASE + '/opencode';
+          }
+          const have = new Set(p.endpoints.map(ep => ep.path));
+          for (const dep of dp.endpoints) {
+            if (!have.has(dep.path)) p.endpoints.push(Object.assign({}, dep));
+          }
+        }
+        return c;
+      }
+    }
+  } catch (e) { console.warn('config 解析失败，使用默认', e); }
+  const c = defaultConfig();
+  saveConfig(c);
+  return c;
+}
+function saveConfig(c) {
+  localStorage.setItem(LS_KEY, JSON.stringify(c));
+}
+function activeProvider() {
+  return config.providers.find(p => p.id === config.active) || config.providers[0];
+}
+function enabledProviders() {
+  return config.providers.filter(p => p.token && p.enabled !== false && p.endpoints.length);
+}
+
+/* ---------- 工具 ---------- */
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function fmtNum(v) {
+  if (v === null || v === undefined || v === '') return '--';
+  const n = Number(v);
+  if (isNaN(n)) return String(v);
+  if (Math.abs(n) >= 1e8) return (n/1e8).toFixed(2) + ' 亿';
+  if (Math.abs(n) >= 1e4) return (n/1e4).toFixed(2) + ' 万';
+  if (Number.isInteger(n)) return n.toLocaleString();
+  return n.toFixed(4).replace(/0+$/,'').replace(/\.$/,'');
+}
+function fmtTime(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(v)) return v.replace('T', ' ');
+    return v; // "HH:mm" 之类原样显示
+  }
+  const n = Number(v);
+  if (!isFinite(n) || n <= 0) return '';
+  if (n < 1e11) return new Date(n * 1000).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return new Date(n).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+function pretty(obj) {
+  let s;
+  try { s = JSON.stringify(obj, null, 2); } catch { s = String(obj); }
+  // 清洗二进制/不可见控制字符，避免渲染乱码
+  return s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+}
+function pad2(n) { return String(n).padStart(2, '0'); }
+function toDate(v) {
+  if (v instanceof Date) return v;
+  if (typeof v === 'number') return new Date(v < 1e11 ? v * 1000 : v);
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (/^\d+$/.test(s)) return toDate(Number(s));
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+// 重置时间按槽位格式化：
+//  - 5小时额度：当日 → "19:28"，次日 → "次日 03:06"（24小时制）
+//  - 周/月额度：完整日期 → "2026-08-09 10:00"
+function fmtReset(label, t) {
+  if (t === undefined || t === null || t === '') return '';
+  const d = toDate(t);
+  if (!d) return String(t);
+  const y = d.getFullYear(), mo = pad2(d.getMonth() + 1), dd = pad2(d.getDate()), hh = pad2(d.getHours()), mm = pad2(d.getMinutes());
+  if (label === '5小时') {
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const dayEnd = dayStart + 86400000;
+    const ts = d.getTime();
+    if (ts >= dayStart && ts < dayEnd) return hh + ':' + mm;
+    if (ts >= dayEnd && ts < dayEnd + 86400000) return '次日 ' + hh + ':' + mm;
+    return y + '-' + mo + '-' + dd + ' ' + hh + ':' + mm;
+  }
+  return y + '-' + mo + '-' + dd + ' ' + hh + ':' + mm;
+}
+// 时间进度百分比：按槽位窗口计算已流逝比例（窗口起点 = 重置时间 - 窗口长度）
+//  - 5小时：滚动 5 小时窗口；周：滚动 7 天；月：按自然月回溯（重置点往前一个月）
+function timeProgress(label, t) {
+  if (t === undefined || t === null || t === '') return undefined;
+  const d = toDate(t);
+  if (!d) return undefined;
+  const end = d.getTime();
+  let start;
+  if (label === '月') {
+    const s = new Date(end);
+    s.setMonth(s.getMonth() - 1);
+    start = s.getTime();
+  } else {
+    const win = label === '5小时' ? 5 * 3600 * 1000 : (label === '周' ? 7 * 24 * 3600 * 1000 : null);
+    if (!win) return undefined;
+    start = end - win;
+  }
+  const now = Date.now();
+  const pct = Math.round((now - start) / (end - start) * 100);
+  return Math.min(100, Math.max(0, pct));
+}
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+function setConn(which, cls, text) {
+  const el = $(which === 'home' ? '#connHome' : '#connDetail');
+  el.innerHTML = `<span class="dot ${cls}"></span>${esc(text)}`;
+}
+
+/* ============================================================
+ * 额度提取器：从任意平台的接口返回里挖「周期额度 + 刷新时间」
+ * ============================================================ */
+const PERIOD_5H = /(fivehour|5hour|5小时|five_hour|fivemin)/i;
+const PERIOD_WEEK = /(week|weekly|每周|^周)/i;
+const PERIOD_MONTH = /(month|monthly|每月|^月|月度)/i;
+
+function periodOf(str) {
+  if (!str) return null;
+  if (PERIOD_5H.test(str)) return '5小时';
+  if (PERIOD_WEEK.test(str)) return '周';
+  if (PERIOD_MONTH.test(str)) return '月';
+  return null;
+}
+
+// Kimi 风格 window 周期推导：{duration: 300, timeUnit: "MINUTE"} → 5小时
+function windowLabel(w) {
+  const dur = Number(w.duration);
+  const unit = String(w.timeUnit || w.unit || '').toUpperCase();
+  if (!isFinite(dur) || dur <= 0) return null;
+  if (unit.includes('MINUTE')) {
+    if (dur === 300) return '5小时';
+    if (dur === 1440) return '日';
+    if (dur % 60 === 0) return (dur / 60) + '小时';
+    return dur + '分钟';
+  }
+  if (unit.includes('HOUR')) return dur === 5 ? '5小时' : dur + '小时';
+  if (unit.includes('DAY')) {
+    if (dur >= 28) return '月';
+    if (dur === 7) return '周';
+    if (dur === 1) return '日';
+    return dur + '天';
+  }
+  if (unit.includes('MONTH')) return '月';
+  if (unit.includes('WEEK')) return '周';
+  return null;
+}
+
+// 智谱风格：limits 项 {type, unit, number, percentage, nextResetTime}，无 name/window
+// unit 编码：3=小时(5小时窗口)、6=周、5=月；TOKENS_LIMIT=token 额度，TIME_LIMIT=时间/用量额度
+function zhipuUnitLabel(unit, number) {
+  switch (unit) {
+    case 3: return '5小时';
+    case 6: return '周';
+    case 5: return '月';
+    case 1: return (number || 1) + '分钟';
+    case 2: return (number || 1) + '天';
+    case 4: return (number || 1) + '周';
+    default: return null;
+  }
+}
+
+// 扁平键解析：fiveHourCurrent / weekTotal / monthResetTime ...
+const FLAT_KEY = /^(fiveHour|week|month|5hour|weekly|monthly)(Current|Total|Limit|Quota|Used|Reset|ResetTime|RefreshTime)$/;
+
+// 字符串数字 → number（Kimi 的 limit/used/remaining 是字符串）
+function toN(x) {
+  return (typeof x === 'string' && /^-?\d+(\.\d+)?$/.test(x.trim())) ? Number(x) : x;
+}
+// 窗口时长（秒）：Kimi 的 window {duration, timeUnit} 显式换算；无则按周期推定
+const DEFAULT_WINDOW = { '5小时': 5 * 3600, '周': 7 * 86400, '月': 30 * 86400 };
+function windowSeconds(w) {
+  if (!w || typeof w !== 'object') return null;
+  const u = String(w.timeUnit || '').toUpperCase();
+  let mult = 1;
+  if (u.includes('MINUTE')) mult = 60;
+  else if (u.includes('HOUR')) mult = 3600;
+  else if (u.includes('DAY')) mult = 86400;
+  else if (u.includes('WEEK')) mult = 604800;
+  else if (u.includes('MONTH')) mult = 2592000;
+  const d = toN(w.duration);
+  return (typeof d === 'number' && d > 0) ? d * mult : null;
+}
+function windowDurOf(label, w) {
+  return windowSeconds(w) || DEFAULT_WINDOW[label] || null;
+}
+
+function extractQuotaItems(prov) {
+  const items = [];            // 明确条目：{label, current, total, resetTime, unit}
+  const flat = {};             // 扁平键分组：label -> {current, total, resetTime}
+  const balances = [];         // 余额类：{label, value, currency}
+
+  function walk(obj, prefix) {
+    if (!obj || typeof obj !== 'object') return;
+    if (Array.isArray(obj)) { obj.forEach(v => walk(v, prefix)); return; }
+    // 元素级检查：Kimi limits[i] 结构 {name/window + detail}，智谱 limits[i] 结构 {type/unit/number}
+    const objName = periodOf(obj.name || obj.title || obj.scope);
+    const zlabel = objName ? null : zhipuUnitLabel(obj.unit, obj.number);
+    const label = objName || zlabel;
+    const od = (obj.detail && typeof obj.detail === 'object') ? obj.detail : obj;
+    let ocur = toN(od.used) ?? toN(od.current) ?? toN(od.consumed) ?? toN(od.currentValue) ?? toN(od.current_value) ?? toN(od.usedTokens);
+    let otot = toN(od.limit) ?? toN(od.total) ?? toN(od.quota) ?? toN(od.usage) ?? toN(od.usageLimit) ?? toN(od.max) ?? toN(od.cap);
+    if (ocur === undefined && toN(od.remaining) !== undefined && otot !== undefined) ocur = otot - toN(od.remaining);
+    else if (ocur === undefined && toN(obj.remaining) !== undefined && otot !== undefined) ocur = otot - toN(obj.remaining);
+    const oreset = od.reset_at ?? od.resetAt ?? od.reset_time ?? od.resetTime ?? od.reset ?? od.nextResetTime ?? od.nextReset ?? obj.reset_at ?? obj.resetAt ?? obj.reset_time ?? obj.resetTime ?? obj.reset ?? obj.nextResetTime ?? obj.nextReset;
+    const opercent = toN(od.percentage) ?? toN(od.usagePercent) ?? toN(od.percent) ?? toN(od.usage_percentage);
+    if (label && (typeof ocur === 'number' || typeof otot === 'number' || typeof opercent === 'number')) {
+      const details = Array.isArray(obj.usageDetails)
+        ? obj.usageDetails.map(d => ({ code: d.modelCode, usage: d.usage })).filter(d => d.code)
+        : null;
+      items.push({ label, current: typeof ocur === 'number' ? ocur : undefined, total: typeof otot === 'number' ? otot : undefined, percentage: typeof opercent === 'number' ? opercent : undefined, resetTime: oreset, windowDur: windowDurOf(label, obj.window), details });
+    } else if (!label && obj.window && typeof obj.window === 'object') {
+      // 无周期名时用 window 推导（5小时=300 MINUTE，周=7 DAY，月=30 DAY/MONTH）
+      const owlabel = windowLabel(obj.window);
+      if (owlabel && (typeof ocur === 'number' || typeof otot === 'number' || typeof opercent === 'number')) {
+        items.push({ label: owlabel, current: typeof ocur === 'number' ? ocur : undefined, total: typeof otot === 'number' ? otot : undefined, percentage: typeof opercent === 'number' ? opercent : undefined, resetTime: oreset, windowDur: windowDurOf(owlabel, obj.window) });
+      }
+    }
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      const p = prefix ? prefix + '.' + k : k;
+      if (v && typeof v === 'object') {
+        // detail 内嵌（Kimi limits[i].detail）或平铺
+        const d = (v.detail && typeof v.detail === 'object') ? v.detail : v;
+        const nameLabel = periodOf(v.name || v.title || v.scope);
+        let cur = toN(d.used) ?? toN(d.current) ?? toN(d.consumed) ?? toN(d.currentValue) ?? toN(d.current_value) ?? toN(v.used) ?? toN(v.current) ?? toN(v.consumed) ?? toN(v.currentValue);
+        let tot = toN(d.limit) ?? toN(d.total) ?? toN(d.quota) ?? toN(d.usage) ?? toN(d.usageLimit) ?? toN(v.limit) ?? toN(v.total) ?? toN(v.quota) ?? toN(v.usage) ?? toN(v.max) ?? toN(v.cap);
+        // remaining 是剩余量：used = limit - remaining
+        if (cur === undefined && toN(d.remaining) !== undefined && tot !== undefined) cur = tot - toN(d.remaining);
+        else if (cur === undefined && toN(v.remaining) !== undefined && tot !== undefined) cur = tot - toN(v.remaining);
+        const reset = d.reset_at ?? d.resetAt ?? d.reset_time ?? d.resetTime ?? d.reset ?? d.nextResetTime ?? d.nextReset ?? v.reset_at ?? v.resetAt ?? v.reset_time ?? v.resetTime ?? v.reset ?? v.nextResetTime ?? v.nextReset ?? v.refreshTime;
+        const percent = toN(d.percentage) ?? toN(d.usagePercent) ?? toN(d.percent) ?? toN(v.percentage) ?? toN(v.usagePercent) ?? toN(v.percent);
+        // 1) Kimi 风格：name/title/scope 带周期词（5小时额度/每周额度/MCP每月额度）
+        if (nameLabel && (typeof cur === 'number' || typeof tot === 'number' || typeof percent === 'number')) {
+          items.push({ label: nameLabel, current: typeof cur === 'number' ? cur : undefined, total: typeof tot === 'number' ? tot : undefined, percentage: typeof percent === 'number' ? percent : undefined, resetTime: reset, windowDur: windowDurOf(nameLabel, v.window) });
+          walk(v, p);
+          continue;
+        }
+        // 2) 通用：键名或路径带周期词 + 有 current/total/percentage（OpenCode 的 usagePercent）
+        const c = toN(v.current) ?? toN(v.used) ?? toN(v.consumed);
+        const t = toN(v.total) ?? toN(v.limit) ?? toN(v.quota);
+        const pct = toN(v.percentage) ?? toN(v.usagePercent) ?? toN(v.percent);
+        if ((typeof c === 'number' || typeof t === 'number' || typeof pct === 'number') && (c !== undefined || t !== undefined || pct !== undefined)) {
+          const label = periodOf(k) || periodOf(p) || (/(^|\.)rolling/i.test(p) ? '5小时' : null);
+          const bal = /(balance|amount|credit)/i.test(k) && !/(used|consumed)/i.test(k) && label === null;
+          if (label) {
+            const r2 = v.resetTime ?? v.reset ?? v.refreshTime ?? v.nextResetTime ?? v.nextReset;
+            // OpenCode 给的是相对秒数 resetInSec → 换算成绝对时间
+            const rt = r2 !== undefined ? r2 : (typeof v.resetInSec === 'number' ? new Date(Date.now() + v.resetInSec * 1000) : undefined);
+            items.push({ label, current: typeof c === 'number' ? c : undefined, total: typeof t === 'number' ? t : undefined, percentage: typeof pct === 'number' ? pct : undefined, resetTime: rt, windowDur: windowDurOf(label, v.window) });
+          } else if (bal) {
+            balances.push({ label: k, value: c ?? t, currency: v.currency });
+          }
+        }
+        // 3) Kimi window 推导：window: {duration, timeUnit}
+        const w = v.window;
+        if (w && typeof w === 'object' && !nameLabel) {
+          const wlabel = windowLabel(w);
+          if (wlabel && (typeof cur === 'number' || typeof tot === 'number')) {
+            items.push({ label: wlabel, current: typeof cur === 'number' ? cur : undefined, total: typeof tot === 'number' ? tot : undefined, resetTime: reset, windowDur: windowDurOf(wlabel, w) });
+            continue;
+          }
+        }
+        // 4) usage 汇总对象（Kimi 的 usage 字段 = 周额度）
+        if (k === 'usage' && (typeof cur === 'number' || typeof tot === 'number')) {
+          items.push({ label: periodOf(v.name) || '周', current: typeof cur === 'number' ? cur : undefined, total: typeof tot === 'number' ? tot : undefined, percentage: typeof percent === 'number' ? percent : undefined, resetTime: reset, windowDur: windowDurOf('周', v.window) });
+          continue;
+        }
+        walk(v, p);
+      } else if (typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()))) {
+        // 归一化：字符串数字统一转 number，后续提取/兜底都按 number 处理
+        const nv = (typeof v === 'string') ? Number(v) : v;
+        // 扁平键：fiveHourCurrent / fiveHourTotal / fiveHourResetTime
+        const m = k.match(FLAT_KEY);
+        if (m) {
+          const label = periodOf(m[1]);
+          const suffix = m[2];
+          if (!flat[label]) flat[label] = {};
+          if (/Total|Limit|Quota/.test(suffix)) flat[label].total = nv;
+          else if (/Current|Used/.test(suffix)) flat[label].current = nv;
+          else if (/Reset|Refresh/.test(suffix)) flat[label].resetTime = v;
+        } else if (/(total_?balance|balance|available_?balance|credit)/i.test(k) && !/(consumed|used|limit)/i.test(k)) {
+          balances.push({ label: k, value: nv });
+        }
+      }
+    }
+  }
+
+  for (const ep of prov.endpoints) {
+    const r = state[prov.id] && state[prov.id][ep.id];
+    if (!r || !r.ok || !r.data || typeof r.data !== 'object') continue;
+    walk(r.data, '');
+  }
+
+  // 兜底：主 walk 没捞到余额时，直接从响应里查 total_balance / balance（DeepSeek 等纯余额平台）
+  if (balances.length === 0) {
+    for (const ep of prov.endpoints) {
+      const r = state[prov.id] && state[prov.id][ep.id];
+      if (!r || !r.ok || !r.data || typeof r.data !== 'object') continue;
+      const deepFind = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        if (Array.isArray(obj)) { obj.forEach(deepFind); return; }
+        for (const k of Object.keys(obj)) {
+          const v = obj[k];
+          if (/(total_?balance|balance|available_?balance)/i.test(k) && !/(consumed|used|limit|granted|topped)/i.test(k)) {
+            const nv = toN(v);
+            if (typeof nv === 'number' && !balances.some(b => b.value === nv)) balances.push({ label: k, value: nv, currency: obj.currency });
+          } else if (v && typeof v === 'object') {
+            deepFind(v);
+          }
+        }
+      };
+      deepFind(r.data);
+    }
+  }
+
+  // 合并 flat
+  for (const label of Object.keys(flat)) {
+    const f = flat[label];
+    if (f.current !== undefined || f.total !== undefined) {
+      items.push({ label, current: f.current, total: f.total, resetTime: f.resetTime });
+    }
+  }
+  // 去重（同 label 同值）
+  const seen = new Set();
+  const out = [];
+  for (const it of items) {
+    const key = it.label + '|' + it.current + '|' + it.total + '|' + (it.resetTime || '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+  }
+  // 余额条目也合并（智谱 tokenAccounts 里可能有多条）
+  for (const b of balances) {
+    const key = '余额|' + b.value;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label: '余额', current: b.value, unit: b.currency });
+  }
+  return out;
+}
+
+/* ============================================================
+ * 首页：多平台额度总览
+ * ============================================================ */
+async function refreshHome() {
+  const provs = enabledProviders();
+  if (!provs.length) {
+    setConn('home', 'err', '还没有已配置 token 的平台，到「设置」里添加');
+    renderHomeGrid();
+    return;
+  }
+  homeLoading = true;
+  setConn('home', 'run', '正在刷新 ' + provs.length + ' 个平台...');
+  $('#refreshBtn').disabled = true;
+  $('#emptyHome').style.display = 'none';
+  renderHomeGrid();
+  const t0 = performance.now();
+  let done = 0;
+  // 平台间并行请求，但每个完成就立即重绘（按先后顺序出结果）
+  await Promise.all(provs.map(async prov => {
+    await fetchProvider(prov);
+    done++;
+    renderHomeGrid();
+    const okNow = provs.filter(p => Object.values(state[p.id] || {}).some(r => r && r.ok)).length;
+    $('#elapsedHome').textContent = '· ' + Math.round(performance.now() - t0) + 'ms';
+    setConn('home', okNow ? 'ok' : 'err', `已加载 ${done}/${provs.length} 个平台（${okNow} 个有数据）`);
+  }));
+  homeLoading = false;
+  $('#refreshBtn').disabled = false;
+  $('#elapsedHome').textContent = '· 总耗时 ' + Math.round(performance.now() - t0) + 'ms';
+  const ok = provs.filter(p => Object.values(state[p.id] || {}).some(r => r && r.ok)).length;
+  setConn('home', ok ? 'ok' : 'err', ok + '/' + provs.length + ' 个平台有数据');
+}
+
+function renderHomeGrid() {
+  const grid = $('#homeGrid');
+  grid.innerHTML = '';
+  const provs = enabledProviders();
+  $('#emptyHome').style.display = provs.length ? 'none' : 'block';
+  for (const prov of provs) {
+    const st = state[prov.id] || {};
+    const results = Object.values(st);
+    const okCount = results.filter(r => r && r.ok).length;
+    const total = prov.endpoints.length;
+    const items = extractQuotaItems(prov);
+    // 按周期归类（同 label 取第一条）
+    const byLabel = {};
+    for (const it of items) { if (!byLabel[it.label]) byLabel[it.label] = it; }
+    const card = document.createElement('div');
+    card.className = 'prov-card';
+    let badge = `<span class="badge">待刷新</span>`;
+    if (results.length) {
+      badge = okCount > 0
+        ? `<span class="badge ok">${okCount}/${total} 接口成功</span>`
+        : `<span class="badge err">全部失败</span>`;
+    }
+    let body = '';
+    if (!results.length) {
+      body = `<div class="pending-note">${homeLoading ? '加载中...' : '点上方「刷新」拉取数据'}</div>`;
+    } else if (okCount === 0) {
+      const first = results.find(r => r);
+      body = `<div class="err-note">${esc(first ? (first.error || '请求失败') : '未知错误')}</div>`;
+    } else {
+      const balance = byLabel['余额'];
+      const headRight = '';
+      const slots = ['5小时', '周', '月'].map(p => byLabel[p]);
+      // 有余额但某格为空时，用余额卡片填充（DeepSeek 等纯余额平台）
+      if (balance) {
+        for (let i = 0; i < slots.length; i++) {
+          if (!slots[i]) { slots[i] = balance; break; }
+        }
+      }
+      body = `<div class="quota-row">${slots.map(it => quotaCardHtml(it, prov.id)).join('')}</div>`;
+      if (!slots.some(Boolean) && !balance) {
+        body = `<div class="pending-note">接口通了，但没识别到周期额度字段（见详情页 JSON）</div>`;
+      }
+      card.innerHTML = `
+        <div class="prov-card-head">
+          <span class="name">${esc(prov.name)}</span>
+          ${badge}
+          ${headRight}
+          <span class="go-detail">查看接口明细 →</span>
+        </div>
+        ${body}`;
+      card.querySelector('.go-detail').onclick = () => { enterDetail(prov.id); };
+      grid.appendChild(card);
+      continue;
+    }
+    card.innerHTML = `
+      <div class="prov-card-head">
+        <span class="name">${esc(prov.name)}</span>
+        ${badge}
+        <span class="go-detail">查看接口明细 →</span>
+      </div>
+      ${body}`;
+    card.querySelector('.go-detail').onclick = () => { enterDetail(prov.id); };
+    grid.appendChild(card);
+  }
+}
+
+const QUOTA_SLOT_LABEL = { '5小时': '每5小时使用额度', '周': '每周使用额度', '月': '每月使用额度', '余额': '账户余额' };
+const MODEL_CODE_NAMES = { 'search-prime': '网络搜索', 'web-reader': '网页读取', 'zread': '开源仓库' };
+function quotaCardHtml(it, provId) {
+  if (!it) {
+    return `<div class="qcard empty"><div class="q-percent">--</div></div>`;
+  }
+  // 余额卡：显示金额，不做百分比（无总限额概念）
+  if (it.label === '余额') {
+    const val = fmtNum(it.current);
+    const unit = it.unit ? ' ' + esc(it.unit) : '';
+    return `
+    <div class="qcard">
+      <div class="q-label">账户余额</div>
+      <div class="q-percent">${esc(val)}<span class="pct">${unit}</span></div>
+    </div>`;
+  }
+  // 智谱的月额度特指 MCP 每月额度，其他平台用通用名
+  let label;
+  if (it && it.label === '月' && provId === 'zhipu') label = 'MCP 每月额度';
+  else label = QUOTA_SLOT_LABEL[it && it.label] || ((it && it.label) ? it.label + '额度' : '');
+  if (!it) {
+    return `<div class="qcard empty"><div class="q-label">${label}</div><div class="q-percent">--</div></div>`;
+  }
+  // 百分比：优先接口直给，否则 current/total 计算
+  let percent = it.percentage;
+  if (percent === undefined && typeof it.current === 'number' && typeof it.total === 'number' && it.total > 0) {
+    percent = Math.round(it.current / it.total * 100);
+  }
+  // 数值行只在有 MCP 明细时显示（纯 used/limit 数值无意义，百分比已经够用）
+  const hasNum = !!(it.details && it.details.length);
+  let valText = '';
+  if (it.details && it.details.length) {
+    const parts = [];
+    if (it.total !== undefined) parts.push('额度：' + fmtNum(it.total));
+    for (const d of it.details) parts.push((MODEL_CODE_NAMES[d.code] || d.code) + ' ' + fmtNum(d.usage));
+    valText = parts.join('，');
+  }
+  const barColor = percent >= 90 ? 'danger' : (percent >= 70 ? 'warn' : '');
+  // 双进度条：左 = 额度使用（现有逻辑），右 = 时间进度（按槽位窗口计算）
+  const tPct = timeProgress(it.label, it.resetTime);
+  let barArea = '';
+  if (percent !== undefined) {
+    const fill = `<div class="q-bar-fill ${barColor}" style="width:${Math.min(100, Math.max(0, percent))}%"></div>`;
+    if (tPct !== undefined) {
+      barArea = `
+    <div class="q-bars">
+      <div class="q-bar">${fill}</div>
+      <div class="q-bar"><div class="q-bar-fill time" style="width:${tPct}%"></div></div>
+      <span class="q-tpct">时间 ${tPct}%</span>
+    </div>`;
+    } else {
+      barArea = `<div class="q-bar">${fill}</div>`;
+    }
+  }
+  const reset = (it.resetTime !== undefined && it.resetTime !== null && it.resetTime !== '')
+    ? `<div class="q-reset">重置时间 ${esc(fmtReset(it.label, it.resetTime))}</div>` : '';
+  return `
+    <div class="qcard">
+      <div class="q-label">${label}</div>
+      <div class="q-percent">${percent !== undefined ? percent + '<span class="pct">%</span>' : '--'}</div>
+      ${barArea}
+      ${hasNum ? `<div class="q-val">${esc(valText)}</div>` : ''}
+      ${reset}
+    </div>`;
+}
+
+/* ============================================================
+ * 请求与详情页
+ * ============================================================ */
+async function fetchProvider(prov) {
+  if (!state[prov.id]) state[prov.id] = {};
+  await Promise.all(prov.endpoints.map(async ep => {
+    state[prov.id][ep.id] = await callApi(ep, prov);
+  }));
+}
+
+function callApi(ep, prov) {
+  const t0 = performance.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  const isSolid = ep.path.includes('/_server');
+  const headers = { 'Accept': '*/*' };
+  if (isSolid) {
+    // OpenCode 控制台 server function：Cookie 鉴权 + SolidStart 协议头
+    // 注意：浏览器 fetch 禁止设置 Cookie 头（forbidden header 会被静默丢弃），
+    // 所以用自定义 X-Cookie 头传输，由本机代理转成标准 Cookie
+    if (prov.token) headers['X-Cookie'] = prov.token;
+    const m = ep.path.match(/[?&]id=([a-f0-9]+)/);
+    if (m) headers['x-server-id'] = m[1];
+    headers['x-server-instance'] = 'server-fn:5';
+  } else {
+    headers['Authorization'] = 'Bearer ' + prov.token;
+    headers['Accept'] = 'application/json';
+  }
+  return fetch(prov.baseURL.replace(/\/+$/, '') + ep.path + buildQuery(ep.params), {
+    method: ep.method,
+    headers,
+    signal: ctrl.signal,
+  }).then(async res => {
+    const ct = res.headers.get('content-type') || '';
+    let data = null, err = null;
+    try {
+      if (isSolid) {
+        const text = await res.text();
+        data = parseSolidResponse(text);
+        // 404 / 解析不出数据：大概率是 server function id 随部署失效
+        const parsedEmpty = data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length === 0;
+        const rawLooksError = typeof data === 'string' && /(not found|404|cannot find)/i.test(String(data).slice(0, 300));
+        if (res.status === 404 || parsedEmpty || rawLooksError) {
+          err = 'server function 可能已失效（opencode 重新部署后 id 会变），请从控制台 Network 重新复制 /_server 请求的完整 URL 到设置里';
+        }
+      } else {
+        data = ct.includes('json') ? await res.json() : await res.text();
+      }
+    } catch (e) { err = '解析失败: ' + e.message; }
+    let bizOk = true;
+    if (data && typeof data === 'object') {
+      if ('success' in data) bizOk = data.success === true;
+      else if ('error' in data) bizOk = false;
+    }
+    const ok = res.ok && bizOk && !err;
+    return { ok, status: res.status, ms: Math.round(performance.now() - t0), data, error: err || (ok ? null : (data && (data.msg || (data.error && data.error.message)) || ('HTTP ' + res.status))) };
+  }).catch(e => ({
+    ok: false, status: 0, ms: Math.round(performance.now() - t0),
+    error: e.name === 'AbortError' ? '请求超时(20s)' : (e.message || '网络错误'), timeout: e.name === 'AbortError',
+  })).finally(() => clearTimeout(timer));
+}
+// SolidStart server function 响应解析：";0x..;((self.$R=...)["server-fn:N"]=[],(...))"
+// 协议依赖全局 $R（self.$R 赋值即创建全局变量），用全局 eval 执行后读取，再恢复现场
+function parseSolidResponse(text) {
+  const s = String(text || '').trim();
+  if (!s.startsWith(';')) return s;
+  const prev = self.$R;
+  self.$R = {};
+  try {
+    (0, eval)(s);
+    let data = null;
+    for (const k of Object.keys(self.$R)) {
+      const arr = self.$R[k];
+      if (Array.isArray(arr) && arr[0] && typeof arr[0] === 'object' && !(arr[0] instanceof Response)) {
+        data = arr[0];
+        break;
+      }
+    }
+    return data || {};
+  } catch (e) {
+    return s;
+  } finally {
+    self.$R = prev;
+  }
+}
+function buildQuery(paramsStr) {
+  let qs = '';
+  if (paramsStr && paramsStr.trim()) {
+    try {
+      const p = JSON.parse(paramsStr);
+      const parts = [];
+      for (const k of Object.keys(p)) {
+        if (p[k] !== undefined && p[k] !== null) parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(p[k]));
+      }
+      if (parts.length) qs = '?' + parts.join('&');
+    } catch (e) { /* 忽略非法参数 */ }
+  }
+  return qs;
+}
+
+async function refreshDetail() {
+  const prov = activeProvider();
+  if (!prov.token) { setConn('detail', 'err', '该平台未配置 token，请到「设置」里填写'); return; }
+  setConn('detail', 'run', '正在刷新（' + prov.name + '）...');
+  $('#refreshBtn').disabled = true;
+  const t0 = performance.now();
+  await fetchProvider(prov);
+  $('#elapsedDetail').textContent = '· 总耗时 ' + Math.round(performance.now() - t0) + 'ms';
+  $('#refreshBtn').disabled = false;
+  renderKpis(prov);
+  renderEndpoints(prov);
+  const st = state[prov.id] || {};
+  const okCount = prov.endpoints.filter(ep => st[ep.id] && st[ep.id].ok).length;
+  setConn('detail', okCount > 0 ? 'ok' : 'err',
+    okCount > 0 ? `已连接（${okCount}/${prov.endpoints.length} 个接口成功）` : '请求完成，但所有接口都失败了（token 无效或路径不对）');
+}
+
+function renderEndpoints(prov) {
+  const box = $('#endpoints');
+  box.innerHTML = '';
+  for (const ep of prov.endpoints) {
+    const r = (state[prov.id] || {})[ep.id];
+    const card = document.createElement('div');
+    card.className = 'ep' + (allOpen ? ' open' : '');
+    let stHtml, stClass;
+    if (!r) { stHtml = '待请求'; stClass = 'pending'; }
+    else if (r.timeout) { stHtml = '超时'; stClass = 'timeout'; }
+    else if (r.ok) { stHtml = r.status + ' · ' + r.ms + 'ms'; stClass = 'ok'; }
+    else { stHtml = r.status + ' · ' + r.ms + 'ms'; stClass = 'err'; }
+    const body = r ? `<pre>${esc(pretty(r.data !== undefined ? r.data : r.error))}</pre>` : '';
+    card.innerHTML = `
+      <div class="ep-head">
+        <span class="ep-method">${ep.method}</span>
+        <span class="ep-path" title="${esc(ep.note || '')}">${esc(ep.path)}${ep.params ? ' <span style="color:var(--warn)">' + esc(ep.params) + '</span>' : ''}</span>
+        <span class="ep-status ${stClass}">${stHtml}</span>
+      </div>
+      <div class="ep-body">${body}</div>`;
+    card.querySelector('.ep-head').onclick = () => card.classList.toggle('open');
+    box.appendChild(card);
+  }
+}
+
+function renderKpis(prov) {
+  const kpiBox = $('#kpis');
+  kpiBox.innerHTML = '';
+  const seen = new Set();
+  const out = [];
+  const collect = (obj, prefix) => {
+    if (!obj || typeof obj !== 'object') return;
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      const p = prefix ? prefix + '.' + k : k;
+      if (v && typeof v === 'object') collect(v, p);
+      else if (/^(code|msg|message|success|requestId|traceId|timestamp|time|type|param|is_available)$/i.test(k)) continue;
+      else if (typeof v === 'number' && v !== 0) out.push({ k: p, v });
+      else if (typeof v === 'string' && /^-?\d+(\.\d+)?%?$/.test(v.trim()) && v.trim() !== '0') out.push({ k: p, v: v.trim() });
+    }
+  };
+  for (const ep of prov.endpoints) {
+    const r = (state[prov.id] || {})[ep.id];
+    if (!r || !r.ok || !r.data) continue;
+    collect(r.data, '');
+  }
+  for (const m of out) {
+    const key = m.k.toLowerCase();
+    const interesting = /balance|amount|remain|usage|total|consume|quota|token|money|cost|credit|granted|reset|limit|period|cycle|额度|用量|剩余|消费|充值|刷新/.test(key);
+    if (!interesting) continue;
+    const dedup = m.k + '=' + m.v;
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    const isTime = /^(reset|refresh)/.test(key) && typeof m.v === 'number';
+    const div = document.createElement('div');
+    div.className = 'kpi';
+    div.innerHTML = `<div class="label">${esc(m.k)}</div><div class="value">${esc(isTime ? fmtTime(m.v) : fmtNum(m.v))}</div>`;
+    kpiBox.appendChild(div);
+  }
+}
+
+/* ---------- 视图切换 ---------- */
+function enterDetail(provId) {
+  config.active = provId;
+  saveConfig(config);
+  renderProviderSel();
+  switchView('detail');
+  refreshDetail();
+}
+function switchView(v) {
+  view = v;
+  $('#viewHome').style.display = v === 'home' ? 'block' : 'none';
+  $('#viewDetail').style.display = v === 'detail' ? 'block' : 'none';
+  $('#providerSel').style.display = v === 'detail' ? '' : 'none';
+  $('#tabHome').classList.toggle('active', v === 'home');
+  $('#tabDetail').classList.toggle('active', v === 'detail');
+  if (v === 'detail') {
+    renderProviderSel();
+    showHint();
+    const prov = activeProvider();
+    renderKpis(prov);
+    renderEndpoints(prov);
+    const st = state[prov.id] || {};
+    const okCount = prov.endpoints.filter(ep => st[ep.id] && st[ep.id].ok).length;
+    if (!prov.token) setConn('detail', 'err', '该平台未配置 token，请到「设置」里填写');
+    else if (okCount > 0) setConn('detail', 'ok', `已连接（${okCount}/${prov.endpoints.length} 个接口成功）`);
+    else if (Object.keys(st).length) setConn('detail', 'err', '请求完成，但所有接口都失败了');
+    else setConn('detail', 'pending', '待刷新');
+  }
+}
+
+/* ---------- 设置面板 ---------- */
+function renderProviderSel() {
+  const sel = $('#providerSel');
+  sel.innerHTML = '';
+  config.providers.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.id;
+    o.textContent = p.name + (p.token ? ' ✓' : '');
+    sel.appendChild(o);
+  });
+  sel.value = config.active;
+}
+function openSettings() {
+  editingId = activeProvider().id;
+  renderProvList();
+  renderEditForm();
+  $('#settingsModal').classList.add('open');
+}
+function renderProvList() {
+  const box = $('#provItems');
+  box.innerHTML = '';
+  config.providers.forEach(p => {
+    const div = document.createElement('div');
+    const enabled = p.enabled !== false;
+    div.className = 'prov-item' + (p.id === editingId ? ' active' : '') + (enabled ? '' : ' disabled');
+    div.innerHTML = `<span class="prov-toggle" title="${enabled ? '点击禁用' : '点击启用'}">${enabled ? '◉' : '○'}</span><span class="prov-name">${esc(p.name)}${p.token ? ' ✓' : ''}</span><span class="del" title="删除">✕</span>`;
+    div.onclick = e => {
+      if (e.target.classList.contains('del') || e.target.classList.contains('prov-toggle')) return;
+      flushForm();
+      editingId = p.id;
+      renderProvList();
+      renderEditForm();
+    };
+    div.querySelector('.prov-toggle').onclick = e => {
+      e.stopPropagation();
+      flushForm();
+      p.enabled = enabled ? false : true;
+      saveConfig(config);
+      renderProvList();
+      refreshAllViews();
+      toast(enabled ? `已禁用「${p.name}」（首页不再采集）` : `已启用「${p.name}」`);
+    };
+    div.querySelector('.del').onclick = e => {
+      e.stopPropagation();
+      if (!confirm(`删除平台「${p.name}」？（仅删除本地配置）`)) return;
+      config.providers = config.providers.filter(x => x.id !== p.id);
+      if (config.active === p.id) config.active = config.providers[0].id;
+      if (editingId === p.id) editingId = config.active;
+      saveConfig(config);
+      renderProviderSel();
+      renderProvList();
+      renderEditForm();
+      refreshAllViews();
+    };
+    box.appendChild(div);
+  });
+}
+function renderEditForm() {
+  const p = config.providers.find(x => x.id === editingId);
+  if (!p) return;
+  $('#fName').value = p.name;
+  $('#fBase').value = p.baseURL;
+  $('#fToken').value = p.token;
+  $('#fNote').value = p.note || '';
+  const tbody = $('#epRows');
+  tbody.innerHTML = '';
+  p.endpoints.forEach((ep, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><select class="method-sel">${['GET','POST','PUT','DELETE'].map(m => `<option ${m === ep.method ? 'selected' : ''}>${m}</option>`).join('')}</select></td>
+      <td><input type="text" class="ep-path-in" value="${esc(ep.path)}"></td>
+      <td><input type="text" class="ep-params-in" value="${esc(ep.params || '')}" placeholder='{"type":2}'></td>
+      <td><input type="text" class="ep-note-in" value="${esc(ep.note || '')}"></td>
+      <td><button class="del-ep" title="删除">✕</button></td>`;
+    tr.querySelector('.del-ep').onclick = () => { p.endpoints.splice(i, 1); renderEditForm(); };
+    tbody.appendChild(tr);
+  });
+}
+function flushForm() {
+  const p = config.providers.find(x => x.id === editingId);
+  if (!p) return;
+  p.name = $('#fName').value.trim() || p.name;
+  p.baseURL = $('#fBase').value.trim();
+  p.token = $('#fToken').value.trim();
+  p.note = $('#fNote').value.trim();
+  const rows = [...$('#epRows').querySelectorAll('tr')];
+  p.endpoints = rows.map(tr => ({
+    method: tr.querySelector('.method-sel').value,
+    path: tr.querySelector('.ep-path-in').value.trim(),
+    params: tr.querySelector('.ep-params-in').value.trim(),
+    note: tr.querySelector('.ep-note-in').value.trim(),
+  })).filter(ep => ep.path);
+  p.endpoints.forEach(ep => { if (!ep.id) ep.id = uid(); });
+}
+let uidCounter = 0;
+function uid() { return 'ep' + (++uidCounter) + '_' + Date.now().toString(36); }
+function showHint() {
+  const p = activeProvider();
+  const box = $('#hintBox');
+  if (p.note) {
+    box.style.display = 'block';
+    box.innerHTML = `<b>${esc(p.name)} token 获取：</b>${esc(p.note)}`;
+  } else box.style.display = 'none';
+}
+
+/* ---------- 导出/导入 ---------- */
+function exportJson() {
+  flushForm();
+  saveConfig(config);
+  return JSON.stringify(config, null, 2);
+}
+function downloadJson() {
+  const blob = new Blob([exportJson()], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'llm-dash-config.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('已下载 llm-dash-config.json');
+}
+function importJson(text) {
+  let c;
+  try { c = JSON.parse(text); } catch (e) { throw new Error('JSON 解析失败: ' + e.message); }
+  if (!c || !Array.isArray(c.providers) || !c.providers.length) throw new Error('格式不对：需要 {"providers": [...]}');
+  c.version = 2;
+  if (!c.providers.some(p => p.id === c.active)) c.active = c.providers[0].id;
+  c.providers.forEach(p => {
+    p.endpoints = (p.endpoints || []).filter(ep => ep.path).map(ep => ({ method: ep.method || 'GET', path: ep.path, params: ep.params || '', note: ep.note || '', id: ep.id || uid() }));
+  });
+  config = c;
+  saveConfig(config);
+  editingId = config.active;
+  renderProviderSel();
+  renderProvList();
+  renderEditForm();
+}
+
+/* ---------- 事件绑定 ---------- */
+$('#tabHome').onclick = () => switchView('home');
+$('#tabDetail').onclick = () => switchView('detail');
+$('#refreshBtn').onclick = () => {
+  if (view === 'home') refreshHome();
+  else refreshDetail();
+};
+$('#settingsBtn').onclick = openSettings;
+$('#closeModalBtn').onclick = () => $('#settingsModal').classList.remove('open');
+$('#settingsModal').addEventListener('click', e => { if (e.target === e.currentTarget) e.target.classList.remove('open'); });
+$('#providerSel').onchange = e => {
+  config.active = e.target.value;
+  saveConfig(config);
+  refreshDetail();
+};
+$('#addProvBtn').onclick = () => {
+  flushForm();
+  const id = 'p' + Date.now().toString(36);
+  config.providers.push({ id, name: '新平台', baseURL: 'https://', token: '', note: '', endpoints: [{ method: 'GET', path: '/', note: '', id: uid() }] });
+  editingId = id;
+  renderProvList();
+  renderEditForm();
+};
+$('#delProvBtn').onclick = () => {
+  if (config.providers.length <= 1) { toast('至少保留一个平台'); return; }
+  const p = config.providers.find(x => x.id === editingId);
+  if (!confirm(`删除平台「${p.name}」？`)) return;
+  config.providers = config.providers.filter(x => x.id !== p.id);
+  if (config.active === p.id) config.active = config.providers[0].id;
+  editingId = config.active;
+  saveConfig(config);
+  renderProviderSel();
+  renderProvList();
+  renderEditForm();
+  toast('已删除');
+};
+$('#addEpBtn').onclick = () => {
+  const p = config.providers.find(x => x.id === editingId);
+  p.endpoints.push({ method: 'GET', path: '/', note: '', id: uid() });
+  renderEditForm();
+};
+$('#saveBtn').onclick = () => {
+  flushForm();
+  saveConfig(config);
+  renderProviderSel();
+  renderProvList();
+  renderEditForm();
+  $('#settingsModal').classList.remove('open');
+  toast('已保存');
+};
+$('#testBtn').onclick = async () => {
+  flushForm();
+  const p = config.providers.find(x => x.id === editingId);
+  if (!p) { toast('请先选择平台'); return; }
+  if (!p.token) { toast('先填 token 再测试'); return; }
+  const area = $('#testArea');
+  const box = $('#testResult');
+  area.classList.add('open');
+  box.innerHTML = `<div class="test-head">正在测试「${esc(p.name)}」${p.endpoints.length} 个接口...</div>`;
+  const results = await Promise.all(p.endpoints.map(async ep => ({ ep, r: await callApi(ep, p) })));
+  const okCount = results.filter(x => x.r.ok).length;
+  const head = okCount === p.endpoints.length
+    ? `<div class="test-head ok">${okCount}/${p.endpoints.length} 全部成功，连接正常</div>`
+    : `<div class="test-head err">${okCount}/${p.endpoints.length} 成功，${p.endpoints.length - okCount} 个失败</div>`;
+  box.innerHTML = head + results.map(({ ep, r }) =>
+    `<div class="test-row"><span class="test-path">${esc(ep.path)}</span><span class="test-status ${r.ok ? 'ok' : 'err'}">${r.ok ? (r.status + ' · ' + r.ms + 'ms') : esc(r.error || '失败')}</span></div>`
+  ).join('');
+  toast(okCount === p.endpoints.length ? '测试通过' : okCount + '/' + p.endpoints.length + ' 成功');
+};
+$('#exportBtn').onclick = downloadJson;
+$('#copyBtn').onclick = () => {
+  navigator.clipboard.writeText(exportJson()).then(() => toast('JSON 已复制到剪贴板')).catch(() => toast('复制失败，请用「导出 JSON」'));
+};
+$('#importBtn').onclick = () => $('#importArea').classList.toggle('open');
+$('#importCancelBtn').onclick = () => { $('#importArea').classList.remove('open'); $('#importText').value = ''; };
+$('#importOkBtn').onclick = () => {
+  try {
+    importJson($('#importText').value);
+    $('#importArea').classList.remove('open');
+    $('#importText').value = '';
+    toast('导入成功');
+  } catch (e) { toast(e.message); }
+};
+
+/* ---------- 启动 ---------- */
+config = loadConfig();
+config.providers.forEach(p => p.endpoints.forEach(ep => { if (!ep.id) ep.id = uid(); }));
+saveConfig(config);
+renderProviderSel();
+switchView('home');
+// 打开页面直接自动加载所有已启用平台
+if (enabledProviders().length) refreshHome();
+</script>
+</body>
+</html>
