@@ -23,3 +23,19 @@ node_modules/
 # Temp
 *.tmp
 *.bak
+
+# Dev
+docs/
+
+# Runtime secrets (v0.2 server) — token 配置与加密密钥，严禁入库
+config.json
+old-config.json
+key.bin
+quotaclock-*.lock
+
+# 构建产物
+bin/
+dist/
+
+# 个人笔记
+IDEA.md

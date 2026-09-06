@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuotaClock · 多平台用量 Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
+<link rel="shortcut icon" href="/favicon.ico">
+<link rel="apple-touch-icon" sizes="128x128" href="/icons/favicon-128.png">
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #171a23;
+    --card2: #1d2130;
+    --border: #262b3b;
+    --text: #e6e9f2;
+    --muted: #8b93a7;
+    --accent: #4f7cff;
+    --ok: #34d399;
+    --err: #f87171;
+    --warn: #fbbf24;
+    --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 24px; min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 19px; font-weight: 600; }
+  h1 .logo { width: 26px; height: 26px; vertical-align: -7px; margin-right: 8px; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 16px; margin-left: 8px; }
+
+  .nav-tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
+  .nav-tabs button { background: none; border: none; color: var(--muted); padding: 7px 16px; border-radius: 7px; cursor: pointer; font-size: 16px; }
+  .nav-tabs button.active { background: var(--accent); color: #fff; }
+
+  select, input[type=text], input[type=password], input[type=number], textarea {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 9px 12px; font-size: 16px;
+    font-family: var(--mono); outline: none;
+  }
+  select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 9px 16px; font-size: 16px; cursor: pointer; font-weight: 500;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: var(--card2); border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: #7f1d1d; }
+
+  .status-line { color: var(--muted); font-size: 16px; margin-bottom: 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .status-line .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+  .status-line .dot.ok { background: var(--ok); }
+  .status-line .dot.err { background: var(--err); }
+  .status-line .dot.run { background: var(--warn); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  /* 服务端状态 banner（默认密码 / none 模式 / 0.0.0.0 暴露） */
+  .banners { margin-bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .banner { border-radius: 12px; padding: 13px 18px; font-size: 18px; border: 1px solid; }
+  .banner.warn { background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.35); color: var(--warn); }
+  .banner.err { background: rgba(248,113,113,.10); border-color: rgba(248,113,113,.45); color: var(--err); font-weight: 600; }
+
+  /* 首页：平台额度总览（每平台一行，行内 5小时/周/月 三卡） */
+  .home-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .prov-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+  .prov-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .prov-card-head .name { font-size: 20px; font-weight: 700; cursor: pointer; }
+  .prov-card-head .name:hover { color: var(--accent); }
+  .prov-card-head .badge { font-size: 16px; padding: 3px 9px; border-radius: 20px; background: var(--card2); color: var(--muted); border: 1px solid var(--border); }
+  .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
+  .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
+  .prov-card-head .go-detail { font-size: 20px; color: var(--muted); cursor: pointer; padding: 4px 12px; user-select: none; border-radius: 8px; margin-left: auto; }
+  .prov-card-head .go-detail:hover { color: var(--accent); background: var(--card2); }
+  .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .qcard { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; font-size: 16px; }
+  .qcard .q-label { font-size: 16px; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; }
+  .qcard .q-status { margin-left: auto; font-size: 14px; }
+  .qcard .q-percent { font-size: 28px; font-weight: 700; font-family: var(--mono); line-height: 1.1; margin-bottom: 10px; }
+  .qcard .q-percent .pct { font-size: 16px; color: var(--muted); font-weight: 400; }
+  .q-bar { height: 8px; background: #0d0f16; border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+  .q-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #10b981, #34d399); transition: width .5s; }
+  .q-bar-fill.warn { background: linear-gradient(90deg, var(--warn), #fcd34d); }
+  .q-bar-fill.danger { background: linear-gradient(90deg, var(--err), #fca5a5); }
+  /* 双进度条：上=额度（💲 绿/黄/红），下=时间（🕐 白），图标定宽使两条对齐 */
+  .q-bars { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .q-bar-row { display: flex; align-items: center; gap: 6px; width: 100%; }
+  .q-ico { width: 20px; flex: none; font-size: 14px; text-align: center; line-height: 1; }
+  .q-bars .q-bar { width: 100%; margin-bottom: 0; }
+  .q-bar-fill.time { background: linear-gradient(90deg, #e8edf5, #ffffff); }
+  .q-tpct { font-size: 16px; color: var(--muted); font-family: var(--mono); white-space: nowrap; text-align: right; }
+  .qcard .q-val { font-size: 16px; font-family: var(--mono); color: var(--text); margin-bottom: 6px; }
+  .qcard .q-reset { font-size: 16px; color: var(--warn); font-family: var(--mono); }
+  .qcard.empty .q-percent { color: var(--muted); font-size: 20px; }
+  .prov-card .err-note { font-size: 16px; color: var(--err); margin-top: 8px; }
+  .prov-card .pending-note { font-size: 16px; color: var(--muted); margin-top: 8px; }
+
+  /* 卡片状态标语：按最高级别给整卡定调（QuotaClock 的「钟声」） */
+  .quota-banner { display: inline-flex; align-items: center; gap: 6px; border-radius: 14px; padding: 4px 14px; margin-left: 6px; font-size: 16px; border: 1px solid; white-space: nowrap; }
+  .quota-banner.sev0 { background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.30); color: var(--ok); }
+  .quota-banner.sev1 { background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.30); color: var(--warn); }
+  .quota-banner.sev2 { background: rgba(248,113,113,.08); border-color: rgba(248,113,113,.30); color: var(--err); }
+  .quota-banner.sev3 { background: rgba(248,113,113,.16); border-color: rgba(248,113,113,.45); color: var(--err); font-weight: 600; }
+
+  /* 详情页 */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .kpi .label { font-size: 16px; color: var(--muted); margin-bottom: 6px; word-break: break-all; }
+  .kpi .value { font-size: 20px; font-weight: 700; font-family: var(--mono); word-break: break-all; }
+  .kpi .value.ok { color: var(--ok); }
+  .kpi .value.err { color: var(--err); }
+
+  pre { font-family: var(--mono); font-size: 16px; line-height: 1.55; white-space: pre-wrap; word-break: break-all; color: #c8d0e0; max-height: 480px; overflow: auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+
+  .hint { background: var(--card2); border: 1px dashed var(--border); border-radius: 10px; padding: 13px 16px; font-size: 16px; color: var(--muted); line-height: 1.7; margin-bottom: 18px; }
+  .empty { color: var(--muted); text-align: center; padding: 60px 0; font-size: 16px; }
+
+  /* Modal */
+  .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-start; justify-content: center; z-index: 50; padding: 40px 16px; overflow: auto; }
+  .modal-mask.open { display: flex; }
+  .modal { background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: 900px; max-width: 100%; padding: 20px; }
+  .modal.narrow { width: 480px; }
+  .modal h2 { font-size: 16px; margin-bottom: 14px; }
+  .modal-grid { display: grid; grid-template-columns: 230px 1fr; gap: 16px; }
+  .prov-list { border-right: 1px solid var(--border); padding-right: 14px; }
+  .prov-item { padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 16px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .prov-item:hover { background: var(--card2); }
+  .prov-item.active { background: var(--accent); color: #fff; }
+  .prov-item .prov-name { flex: 1; word-break: break-all; }
+  .prov-item .del { opacity: 0; font-size: 16px; padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.25); }
+  .prov-item:hover .del { opacity: 1; }
+  .form-row { margin-bottom: 12px; }
+  .form-row label { display: block; font-size: 16px; color: var(--muted); margin-bottom: 5px; }
+  .form-row input, .form-row textarea { width: 100%; }
+  .form-row textarea { min-height: 60px; resize: vertical; font-family: var(--mono); font-size: 16px; }
+  .form-row .tip { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .form-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-cols-3 { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
+  .modal-actions .spacer { flex: 1; }
+  .settings-error { display: none; margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 10px; color: var(--err); font-size: 15px; white-space: pre-wrap; }
+  .settings-error.open { display: block; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 10px; font-size: 16px; z-index: 99; opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 90vw; }
+  .toast.show { opacity: 1; }
+
+  footer { margin-top: auto; padding-top: 20px; color: var(--muted); font-size: 14px; font-family: var(--mono); display: flex; gap: 18px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><img class="logo" src="/icons/favicon.svg" alt="">QuotaClock<small>服务端缓存 · 多平台额度总览</small></h1>
+  <div class="nav-tabs">
+    <button id="tabHome" class="active">总览</button>
+    <button id="tabDetail">详情</button>
+  </div>
+  <div style="flex:1"></div>
+  <select id="providerSel" title="切换平台" style="display:none"></select>
+  <button id="refreshBtn">刷新</button>
+  <button id="authBtn" class="ghost" style="display:none">登录</button>
+  <button id="settingsBtn" class="ghost">设置</button>
+</header>
+
+<div id="banners" class="banners"></div>
+
+<div id="viewHome">
+  <div class="status-line">
+    <span id="connHome"><span class="dot"></span>未连接</span>
+    <span id="pollInfo"></span>
+  </div>
+  <div id="homeGrid" class="home-grid"></div>
+  <div id="emptyHome" class="empty">还没有配置任何平台。到「设置」里添加一个平台的 token，保存后采集器会自动拉取数据~</div>
+</div>
+
+<div id="viewDetail" style="display:none">
+  <div class="status-line">
+    <span id="connDetail"><span class="dot"></span></span>
+  </div>
+  <div id="kpis" class="kpis"></div>
+  <pre id="rawData"></pre>
+</div>
+
+<!-- 设置弹窗 -->
+<div class="modal-mask" id="settingsModal">
+  <div class="modal">
+    <h2>设置</h2>
+    <div class="modal-grid">
+      <div class="prov-list">
+        <div id="provItems"></div>
+        <button id="addProvBtn" class="ghost" style="width:100%; margin-top:4px">+ 添加平台</button>
+        <div style="border-top:1px solid var(--border); margin-top:12px; padding-top:10px">
+          <div class="form-row">
+            <label>鉴权模式</label>
+            <select id="sAuthMode" style="width:100%">
+              <option value="admin">admin（修改需登录）</option>
+              <option value="none">none（全开放）</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>修改管理密码</label>
+            <input type="password" id="sPassword" autocomplete="new-password" placeholder="留空 = 不修改">
+          </div>
+          <div class="form-row">
+            <label>采集基准间隔（秒）</label>
+            <input type="number" id="sInterval" min="30">
+          </div>
+          <div class="form-cols">
+            <div class="form-row">
+              <label>监听 IP</label>
+              <input type="text" id="sHost">
+            </div>
+            <div class="form-row">
+              <label>端口</label>
+              <input type="number" id="sPort" min="1" max="65535">
+            </div>
+          </div>
+          <div class="tip" style="font-size:14px;color:var(--muted)">监听地址/端口修改保存后<b>需重启程序</b>才生效</div>
+        </div>
+      </div>
+      <div>
+        <div class="form-cols-3">
+          <div class="form-row">
+            <label>平台 ID（唯一标识）</label>
+            <input type="text" id="fId">
+          </div>
+          <div class="form-row">
+            <label>平台名称</label>
+            <input type="text" id="fName">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Base URL（API 网关地址，不含路径）</label>
+          <input type="text" id="fBase">
+        </div>
+        <div class="form-cols">
+          <div class="form-row">
+            <label>鉴权方式</label>
+            <select id="fAuthStyle">
+              <option value="bearer">bearer（Authorization 头）</option>
+              <option value="cookie">cookie（Cookie 头）</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Token（只写不回显）</label>
+            <input type="password" id="fToken" autocomplete="off" placeholder="">
+            <div class="tip" id="fTokenTip">留空 = 保留原值</div>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>额外请求头（每行一条，格式 Key: Value，可覆盖默认头）</label>
+          <textarea id="fHeaders" placeholder="x-server-id: deadbeef...&#10;x-server-instance: server-fn:5"></textarea>
+        </div>
+        <div class="form-row">
+          <label>请求路径（每行一条，相对 Base URL，可含 ?query）</label>
+          <textarea id="fPaths" placeholder="/user/balance"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="saveBtn">保存</button>
+      <button id="testBtn" class="ghost">测试连接</button>
+      <button id="delProvBtn" class="danger">删除该平台</button>
+      <span class="spacer"></span>
+      <button id="closeModalBtn" class="ghost">关闭</button>
+    </div>
+    <div class="settings-error" id="settingsError"></div>
+  </div>
+</div>
+
+<!-- 登录弹窗 -->
+<div class="modal-mask" id="loginModal">
+  <div class="modal narrow">
+    <h2 id="loginTitle">管理员登录</h2>
+    <div class="form-row">
+      <label>管理密码</label>
+      <input type="password" id="loginPassword" autocomplete="current-password">
+    </div>
+    <div class="settings-error" id="loginErr" style="border:none; padding-top:0"></div>
+    <div class="modal-actions">
+      <button id="loginOkBtn">登录</button>
+      <span class="spacer"></span>
+      <button id="loginCancelBtn" class="ghost">取消</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<footer>
+  <span>QuotaClock <span id="ftVer">--</span></span>
+  <span>上次成功采集：<span id="ftLast">--</span></span>
+  <span>每 <span id="ftPoll">60</span>s 轮询服务端缓存（启动及未就绪时 1s 快速刷新）</span>
+</footer>
+
+<script>
+let snap = null;        // /api/quotas 快照 {revision, collected_at, version, providers}
+let cfgView = null;     // /api/config 脱敏视图
+let lastKey = null;     // (revision, collected_at) 二元组判重
+let editingId = null;
+let detailId = null;
+let view = 'home';
+let retryAt = {};       // provId → 下次重试时刻（倒计时前端算）
+
+const $ = s => document.querySelector(s);
+
+/* ---------- 工具（保留 v0.1） ---------- */
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function fmtNum(v) {
+  if (v === null || v === undefined || v === '') return '--';
+  const n = Number(v);
+  if (isNaN(n)) return String(v);
+  if (Math.abs(n) >= 1e8) return (n/1e8).toFixed(2) + ' 亿';
+  if (Math.abs(n) >= 1e4) return (n/1e4).toFixed(2) + ' 万';
+  if (Number.isInteger(n)) return n.toLocaleString();
+  return n.toFixed(4).replace(/0+$/,'').replace(/\.$/,'');
+}
+function fmtTime(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(v)) return v.replace('T', ' ');
+    return v;
+  }
+  const n = Number(v);
+  if (!isFinite(n) || n <= 0) return '';
+  if (n < 1e11) return new Date(n * 1000).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return new Date(n).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+function pretty(obj) {
+  let s;
+  try { s = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2); } catch { s = String(obj); }
+  return s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+}
+function pad2(n) { return String(n).padStart(2, '0'); }
+function toDate(v) {
+  if (v instanceof Date) return v;
+  if (typeof v === 'number') return new Date(v < 1e11 ? v * 1000 : v);
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (/^\d+$/.test(s)) return toDate(Number(s));
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+function fmtReset(label, t) {
+  if (t === undefined || t === null || t === '') return '';
+  const d = toDate(t);
+  if (!d) return String(t);
+  const y = d.getFullYear(), mo = pad2(d.getMonth() + 1), dd = pad2(d.getDate()), hh = pad2(d.getHours()), mm = pad2(d.getMinutes());
+  if (label === '5小时') {
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const dayEnd = dayStart + 86400000;
+    const ts = d.getTime();
+    if (ts >= dayStart && ts < dayEnd) return hh + ':' + mm;
+    if (ts >= dayEnd && ts < dayEnd + 86400000) return '次日 ' + hh + ':' + mm;
+    return y + '-' + mo + '-' + dd + ' ' + hh + ':' + mm;
+  }
+  return y + '-' + mo + '-' + dd + ' ' + hh + ':' + mm;
+}
+function timeProgress(label, t) {
+  if (t === undefined || t === null || t === '') return undefined;
+  const d = toDate(t);
+  if (!d) return undefined;
+  const end = d.getTime();
+  let start;
+  if (label === '月') {
+    const s = new Date(end);
+    s.setMonth(s.getMonth() - 1);
+    start = s.getTime();
+  } else {
+    const win = label === '5小时' ? 5 * 3600 * 1000 : (label === '周' ? 7 * 24 * 3600 * 1000 : null);
+    if (!win) return undefined;
+    start = end - win;
+  }
+  const now = Date.now();
+  const pct = Math.round((now - start) / (end - start) * 100);
+  return Math.min(100, Math.max(0, pct));
+}
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+function setConn(which, cls, text) {
+  const el = $(which === 'home' ? '#connHome' : '#connDetail');
+  el.innerHTML = `<span class="dot ${cls}"></span>${esc(text)}`;
+}
+
+/* ---------- API（同源 /api/*，网络层重写点） ---------- */
+async function api(path, opts = {}) {
+  const init = Object.assign({}, opts);
+  if (init.body) init.headers = Object.assign({ 'Content-Type': 'application/json' }, init.headers || {});
+  const res = await fetch(path, init);
+  let j = null;
+  try { j = await res.json(); } catch (e) { /* 非 JSON */ }
+  if (!res.ok) {
+    const err = new Error((j && j.error && j.error.message) || ('HTTP ' + res.status));
+    err.status = res.status;
+    err.code = j && j.error && j.error.code;
+    err.details = j && j.details;
+    err.retry_after_s = j && j.error && j.error.retry_after_s;
+    throw err;
+  }
+  return j;
+}
+
+/* ---------- SolidStart server function 响应解析（复刻 v0.1 parseSolidResponse） ----------
+ * opencode 的 /_server 返回形如 ";0x..;((self.$R=...)["server-fn:N"]=[],(...))" 的序列化文本，
+ * 协议依赖全局 $R（self.$R 赋值即创建全局变量），用全局 eval 执行后读取，再恢复现场。
+ * 服务端对该类响应原文透传（设计 §7.6：浏览器 JS 才能执行，Go 不复刻）。 */
+function parseSolidResponse(text) {
+  const s = String(text || '').trim();
+  if (!s.startsWith(';')) return s;
+  const prev = self.$R;
+  self.$R = {};
+  try {
+    (0, eval)(s);
+    let data = null;
+    for (const k of Object.keys(self.$R)) {
+      const arr = self.$R[k];
+      if (Array.isArray(arr) && arr[0] && typeof arr[0] === 'object' && !(arr[0] instanceof Response)) {
+        data = arr[0];
+        break;
+      }
+    }
+    return data || {};
+  } catch (e) {
+    return s;
+  } finally {
+    self.$R = prev;
+  }
+}
+
+// 透传数据在进入额度提取/详情展示前统一解析：字符串且为 SolidStart 文本 → 解析为对象
+function resolveData(data) {
+  if (typeof data === 'string' && data.trim().startsWith(';')) {
+    return parseSolidResponse(data);
+  }
+  return data;
+}
+
+/* ============================================================
+ * 额度提取器：从平台透传数据里挖「周期额度 + 刷新时间」（保留 v0.1 全部逻辑）
+ * ============================================================ */
+const PERIOD_5H = /(fivehour|5hour|5小时|five_hour|fivemin)/i;
+const PERIOD_WEEK = /(week|weekly|每周|^周)/i;
+const PERIOD_MONTH = /(month|monthly|每月|^月|月度)/i;
+
+function periodOf(str) {
+  if (!str) return null;
+  if (PERIOD_5H.test(str)) return '5小时';
+  if (PERIOD_WEEK.test(str)) return '周';
+  if (PERIOD_MONTH.test(str)) return '月';
+  return null;
+}
+
+function windowLabel(w) {
+  const dur = Number(w.duration);
+  const unit = String(w.timeUnit || w.unit || '').toUpperCase();
+  if (!isFinite(dur) || dur <= 0) return null;
+  if (unit.includes('MINUTE')) {
+    if (dur === 300) return '5小时';
+    if (dur === 1440) return '日';
+    if (dur % 60 === 0) return (dur / 60) + '小时';
+    return dur + '分钟';
+  }
+  if (unit.includes('HOUR')) return dur === 5 ? '5小时' : dur + '小时';
+  if (unit.includes('DAY')) {
+    if (dur >= 28) return '月';
+    if (dur === 7) return '周';
+    if (dur === 1) return '日';
+    return dur + '天';
+  }
+  if (unit.includes('MONTH')) return '月';
+  if (unit.includes('WEEK')) return '周';
+  return null;
+}
+
+function zhipuUnitLabel(unit, number) {
+  switch (unit) {
+    case 3: return '5小时';
+    case 6: return '周';
+    case 5: return '月';
+    case 1: return (number || 1) + '分钟';
+    case 2: return (number || 1) + '天';
+    case 4: return (number || 1) + '周';
+    default: return null;
+  }
+}
+
+const FLAT_KEY = /^(fiveHour|week|month|5hour|weekly|monthly)(Current|Total|Limit|Quota|Used|Reset|ResetTime|RefreshTime)$/;
+
+function toN(x) {
+  return (typeof x === 'string' && /^-?\d+(\.\d+)?$/.test(x.trim())) ? Number(x) : x;
+}
+const DEFAULT_WINDOW = { '5小时': 5 * 3600, '周': 7 * 86400, '月': 30 * 86400 };
+function windowSeconds(w) {
+  if (!w || typeof w !== 'object') return null;
+  const u = String(w.timeUnit || '').toUpperCase();
+  let mult = 1;
+  if (u.includes('MINUTE')) mult = 60;
+  else if (u.includes('HOUR')) mult = 3600;
+  else if (u.includes('DAY')) mult = 86400;
+  else if (u.includes('WEEK')) mult = 604800;
+  else if (u.includes('MONTH')) mult = 2592000;
+  const d = toN(w.duration);
+  return (typeof d === 'number' && d > 0) ? d * mult : null;
+}
+function windowDurOf(label, w) {
+  return windowSeconds(w) || DEFAULT_WINDOW[label] || null;
+}
+
+function extractQuotaItems(provSnap) {
+  const data = resolveData(provSnap.data); // SolidStart 文本先解析为对象
+  const items = [];
+  const flat = {};
+  const balances = [];
+
+  function walk(obj, prefix) {
+    if (!obj || typeof obj !== 'object') return;
+    if (Array.isArray(obj)) { obj.forEach(v => walk(v, prefix)); return; }
+    const objName = periodOf(obj.name || obj.title || obj.scope);
+    const zlabel = objName ? null : zhipuUnitLabel(obj.unit, obj.number);
+    const label = objName || zlabel;
+    const od = (obj.detail && typeof obj.detail === 'object') ? obj.detail : obj;
+    let ocur = toN(od.used) ?? toN(od.current) ?? toN(od.consumed) ?? toN(od.currentValue) ?? toN(od.current_value) ?? toN(od.usedTokens);
+    let otot = toN(od.limit) ?? toN(od.total) ?? toN(od.quota) ?? toN(od.usage) ?? toN(od.usageLimit) ?? toN(od.max) ?? toN(od.cap);
+    if (ocur === undefined && toN(od.remaining) !== undefined && otot !== undefined) ocur = otot - toN(od.remaining);
+    else if (ocur === undefined && toN(obj.remaining) !== undefined && otot !== undefined) ocur = otot - toN(obj.remaining);
+    const oreset = od.reset_at ?? od.resetAt ?? od.reset_time ?? od.resetTime ?? od.reset ?? od.nextResetTime ?? od.nextReset ?? obj.reset_at ?? obj.resetAt ?? obj.reset_time ?? obj.resetTime ?? obj.reset ?? obj.nextResetTime ?? obj.nextReset;
+    const opercent = toN(od.percentage) ?? toN(od.usagePercent) ?? toN(od.percent) ?? toN(od.usage_percentage);
+    if (label && (typeof ocur === 'number' || typeof otot === 'number' || typeof opercent === 'number')) {
+      const details = Array.isArray(obj.usageDetails)
+        ? obj.usageDetails.map(d => ({ code: d.modelCode, usage: d.usage })).filter(d => d.code)
+        : null;
+      items.push({ label, current: typeof ocur === 'number' ? ocur : undefined, total: typeof otot === 'number' ? otot : undefined, percentage: typeof opercent === 'number' ? opercent : undefined, resetTime: oreset, windowDur: windowDurOf(label, obj.window), details });
+    } else if (!label && obj.window && typeof obj.window === 'object') {
+      const owlabel = windowLabel(obj.window);
+      if (owlabel && (typeof ocur === 'number' || typeof otot === 'number' || typeof opercent === 'number')) {
+        items.push({ label: owlabel, current: typeof ocur === 'number' ? ocur : undefined, total: typeof otot === 'number' ? otot : undefined, percentage: typeof opercent === 'number' ? opercent : undefined, resetTime: oreset, windowDur: windowDurOf(owlabel, obj.window) });
+      }
+    }
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      const p = prefix ? prefix + '.' + k : k;
+      if (v && typeof v === 'object') {
+        const d = (v.detail && typeof v.detail === 'object') ? v.detail : v;
+        const nameLabel = periodOf(v.name || v.title || v.scope);
+        let cur = toN(d.used) ?? toN(d.current) ?? toN(d.consumed) ?? toN(d.currentValue) ?? toN(d.current_value) ?? toN(v.used) ?? toN(v.current) ?? toN(v.consumed) ?? toN(v.currentValue);
+        let tot = toN(d.limit) ?? toN(d.total) ?? toN(d.quota) ?? toN(d.usage) ?? toN(d.usageLimit) ?? toN(v.limit) ?? toN(v.total) ?? toN(v.quota) ?? toN(v.usage) ?? toN(v.max) ?? toN(v.cap);
+        if (cur === undefined && toN(d.remaining) !== undefined && tot !== undefined) cur = tot - toN(d.remaining);
+        else if (cur === undefined && toN(v.remaining) !== undefined && tot !== undefined) cur = tot - toN(v.remaining);
+        const reset = d.reset_at ?? d.resetAt ?? d.reset_time ?? d.resetTime ?? d.reset ?? d.nextResetTime ?? d.nextReset ?? v.reset_at ?? v.resetAt ?? v.reset_time ?? v.resetTime ?? v.reset ?? v.nextResetTime ?? v.nextReset ?? v.refreshTime;
+        const percent = toN(d.percentage) ?? toN(d.usagePercent) ?? toN(d.percent) ?? toN(v.percentage) ?? toN(v.usagePercent) ?? toN(v.percent);
+        if (nameLabel && (typeof cur === 'number' || typeof tot === 'number' || typeof percent === 'number')) {
+          items.push({ label: nameLabel, current: typeof cur === 'number' ? cur : undefined, total: typeof tot === 'number' ? tot : undefined, percentage: typeof percent === 'number' ? percent : undefined, resetTime: reset, windowDur: windowDurOf(nameLabel, v.window) });
+          walk(v, p);
+          continue;
+        }
+        const c = toN(v.current) ?? toN(v.used) ?? toN(v.consumed);
+        const t = toN(v.total) ?? toN(v.limit) ?? toN(v.quota);
+        const pct = toN(v.percentage) ?? toN(v.usagePercent) ?? toN(v.percent);
+        if ((typeof c === 'number' || typeof t === 'number' || typeof pct === 'number') && (c !== undefined || t !== undefined || pct !== undefined)) {
+          const label = periodOf(k) || periodOf(p) || (/(^|\.)rolling/i.test(p) ? '5小时' : null);
+          const bal = /(balance|amount|credit)/i.test(k) && !/(used|consumed)/i.test(k) && label === null;
+          if (label) {
+            const r2 = v.resetTime ?? v.reset ?? v.refreshTime ?? v.nextResetTime ?? v.nextReset;
+            const rt = r2 !== undefined ? r2 : (typeof v.resetInSec === 'number' ? new Date(Date.now() + v.resetInSec * 1000) : undefined);
+            items.push({ label, current: typeof c === 'number' ? c : undefined, total: typeof t === 'number' ? t : undefined, percentage: typeof pct === 'number' ? pct : undefined, resetTime: rt, windowDur: windowDurOf(label, v.window) });
+          } else if (bal) {
+            balances.push({ label: k, value: c ?? t, currency: v.currency });
+          }
+        }
+        const w = v.window;
+        if (w && typeof w === 'object' && !nameLabel) {
+          const wlabel = windowLabel(w);
+          if (wlabel && (typeof cur === 'number' || typeof tot === 'number')) {
+            items.push({ label: wlabel, current: typeof cur === 'number' ? cur : undefined, total: typeof tot === 'number' ? tot : undefined, resetTime: reset, windowDur: windowDurOf(wlabel, w) });
+            continue;
+          }
+        }
+        if (k === 'usage' && (typeof cur === 'number' || typeof tot === 'number')) {
+          items.push({ label: periodOf(v.name) || '周', current: typeof cur === 'number' ? cur : undefined, total: typeof tot === 'number' ? tot : undefined, percentage: typeof percent === 'number' ? percent : undefined, resetTime: reset, windowDur: windowDurOf('周', v.window) });
+          continue;
+        }
+        walk(v, p);
+      } else if (typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()))) {
+        const nv = (typeof v === 'string') ? Number(v) : v;
+        const m = k.match(FLAT_KEY);
+        if (m) {
+          const label = periodOf(m[1]);
+          const suffix = m[2];
+          if (!flat[label]) flat[label] = {};
+          if (/Total|Limit|Quota/.test(suffix)) flat[label].total = nv;
+          else if (/Current|Used/.test(suffix)) flat[label].current = nv;
+          else if (/Reset|Refresh/.test(suffix)) flat[label].resetTime = v;
+        } else if (/(total_?balance|balance|available_?balance|credit)/i.test(k) && !/(consumed|used|limit)/i.test(k)) {
+          balances.push({ label: k, value: nv });
+        }
+      }
+    }
+  }
+
+  if (data && typeof data === 'object') walk(data, '');
+
+  if (balances.length === 0 && data && typeof data === 'object') {
+    const deepFind = (obj) => {
+      if (!obj || typeof obj !== 'object') return;
+      if (Array.isArray(obj)) { obj.forEach(deepFind); return; }
+      for (const k of Object.keys(obj)) {
+        const v = obj[k];
+        if (/(total_?balance|balance|available_?balance)/i.test(k) && !/(consumed|used|limit|granted|topped)/i.test(k)) {
+          const nv = toN(v);
+          if (typeof nv === 'number' && !balances.some(b => b.value === nv)) balances.push({ label: k, value: nv, currency: obj.currency });
+        } else if (v && typeof v === 'object') {
+          deepFind(v);
+        }
+      }
+    };
+    deepFind(data);
+  }
+
+  for (const label of Object.keys(flat)) {
+    const f = flat[label];
+    if (f.current !== undefined || f.total !== undefined) {
+      items.push({ label, current: f.current, total: f.total, resetTime: f.resetTime });
+    }
+  }
+  const seen = new Set();
+  const out = [];
+  for (const it of items) {
+    const key = it.label + '|' + it.current + '|' + it.total + '|' + (it.resetTime || '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+  }
+  for (const b of balances) {
+    const key = '余额|' + b.value;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label: '余额', current: b.value, unit: b.currency });
+  }
+  return out;
+}
+
+/* ============================================================
+ * 首页渲染（数据源 = 服务端快照）
+ * ============================================================ */
+function fmtRetryIn(sec) {
+  if (sec >= 60) return Math.ceil(sec / 60) + ' 分钟';
+  return sec + ' 秒';
+}
+
+function renderHomeGrid() {
+  const grid = $('#homeGrid');
+  grid.innerHTML = '';
+  retryAt = {};
+  const provs = (snap && snap.providers) || [];
+  $('#emptyHome').style.display = provs.length ? 'none' : 'block';
+  for (const prov of provs) {
+    const card = document.createElement('div');
+    card.className = 'prov-card';
+    const badge = prov.status === 'ok' ? `<span class="badge ok">正常</span>`
+      : prov.status === 'token_invalid' ? `<span class="badge err">token 失效</span>`
+      : `<span class="badge err">采集失败</span>`;
+
+    // 错误分类文案（红字与失败文案严格区分；倒计时按 retry_after_s 前端计算）
+    let errNote = '';
+    if (prov.status === 'token_invalid') {
+      errNote = `<div class="err-note">${esc((prov.error && prov.error.message) || 'token 失效，请在设置中更新')}</div>`;
+    } else if (prov.status === 'failed') {
+      const code = prov.error && prov.error.code;
+      if (code === 'NOT_COLLECTED_YET') {
+        errNote = `<div class="pending-note">等待首次采集...</div>`;
+      } else {
+        const ra = (prov.error && prov.error.retry_after_s) || 0;
+        if (ra > 0) {
+          retryAt[prov.id] = Date.now() + ra * 1000;
+          errNote = `<div class="err-note">采集失败，<span class="retry-in" data-pid="${esc(prov.id)}">${esc(fmtRetryIn(ra))}</span>后重试 · ${esc((prov.error && prov.error.message) || '')}</div>`;
+        } else {
+          errNote = `<div class="err-note">采集失败 · ${esc((prov.error && prov.error.message) || '')}</div>`;
+        }
+      }
+    }
+
+    let inner;
+    if (prov.status === 'ok' && prov.data !== null && prov.data !== undefined) {
+      const items = extractQuotaItems(prov);
+      const byLabel = {};
+      for (const it of items) { if (!byLabel[it.label]) byLabel[it.label] = it; }
+      const balance = byLabel['余额'];
+      const slots = ['5小时', '周', '月'].map(p => byLabel[p]);
+      if (balance) {
+        for (let i = 0; i < slots.length; i++) {
+          if (!slots[i]) { slots[i] = balance; break; }
+        }
+      }
+      // 平台级标语：取三槽位最高级别
+      let banner = '';
+      const sevs = slots.map(it => it ? slotSeverity(
+        it.label === '余额' ? undefined : (it.percentage !== undefined ? it.percentage
+          : (typeof it.current === 'number' && typeof it.total === 'number' && it.total > 0 ? Math.round(it.current / it.total * 100) : undefined)),
+        timeProgress(it.label, it.resetTime)
+      ) : undefined).filter(s => s !== undefined);
+      const balanceItem = slots.find(it => it && it.label === '余额');
+      if (balanceItem && typeof balanceItem.current === 'number' && balanceItem.current <= 0 && sevs.length === 0) {
+        sevs.push(3);
+      }
+      if (sevs.length) {
+        const top = Math.max(...sevs);
+        const hasBalanceOnly = sevs.length === 1 && balanceItem && typeof balanceItem.current === 'number' && balanceItem.current <= 0;
+        const noun = hasBalanceOnly ? '余额' : '本期额度';
+        banner = `<span class="quota-banner sev${top}">${SEV[top].ico} ${esc(sevText(top, noun))}</span>`;
+      }
+      const collapsed = sevs.length && Math.max(...sevs) >= 2;
+      let body = `<div class="quota-row">${slots.map(it => quotaCardHtml(it, prov.id)).join('')}</div>`;
+      if (!slots.some(Boolean) && !balance) {
+        body = `<div class="pending-note">接口通了，但没识别到周期额度字段（见详情页 JSON）</div>`;
+      }
+      inner = `
+        <div class="prov-card-head">
+          <span class="name" data-pid="${esc(prov.id)}">${esc(prov.name)}</span>
+          ${badge}
+          ${banner}
+          <span class="go-detail toggle-detail">${collapsed ? '▾' : '▴'}</span>
+        </div>
+        <div class="prov-detail-wrap" style="${collapsed ? 'display:none' : ''}">
+          ${body}
+          ${errNote}
+        </div>`;
+    } else {
+      inner = `
+        <div class="prov-card-head">
+          <span class="name" data-pid="${esc(prov.id)}">${esc(prov.name)}</span>
+          ${badge}
+          <span class="go-detail toggle-detail">▴</span>
+        </div>
+        <div class="prov-detail-wrap">${errNote || '<div class="pending-note">加载中...</div>'}</div>`;
+    }
+    card.innerHTML = inner;
+    const wrap = card.querySelector('.prov-detail-wrap');
+    const tg = card.querySelector('.toggle-detail');
+    tg.onclick = () => {
+      const hidden = wrap.style.display === 'none';
+      wrap.style.display = hidden ? '' : 'none';
+      tg.textContent = hidden ? '▾' : '▴';
+    };
+    const nameEl = card.querySelector('.name');
+    nameEl.onclick = () => enterDetail(prov.id);
+    grid.appendChild(card);
+  }
+}
+
+// 失败倒计时 + 冷启动剩余秒数（1s 粒度）
+setInterval(() => {
+  document.querySelectorAll('.retry-in').forEach(el => {
+    const pid = el.getAttribute('data-pid');
+    const t = retryAt[pid];
+    if (!t) return;
+    const left = Math.round((t - Date.now()) / 1000);
+    el.textContent = left > 0 ? fmtRetryIn(left) : '即将重试';
+  });
+  if (Date.now() < fastDeadline) renderPollInfo();
+}, 1000);
+
+const QUOTA_SLOT_LABEL = { '5小时': '每5小时使用额度', '周': '每周使用额度', '月': '每月使用额度', '余额': '账户余额' };
+const MODEL_CODE_NAMES = { 'search-prime': '网络搜索', 'web-reader': '网页读取', 'zread': '开源仓库' };
+
+function slotSeverity(percent, tPct) {
+  if (percent === undefined || percent === null) return undefined;
+  if (percent >= 100) return 3;
+  if (tPct === undefined) return percent >= 90 ? 2 : (percent >= 70 ? 1 : 0);
+  const lead = percent - tPct;
+  if (lead <= 0) return 0;
+  const rem = 100 - tPct;
+  if (rem <= 0) return 2;
+  return (lead / rem) < 0.3 ? 1 : 2;
+}
+const SEV = { 0: { ico: '💪' }, 1: { ico: '🚀' }, 2: { ico: '⚠️' }, 3: { ico: '🛌' } };
+const SEV_TMPL = {
+  0: [(n) => `${n}充足，加把劲干`],
+  1: [() => `节奏略快，悠着点`],
+  2: [(n) => `按这节奏，${n}在重置前就见底，歇歇再战`],
+  3: [
+    (n) => `${n}已耗尽，多休息休息`,
+    (n) => `${n}已经耗尽，喝杯茶休息下吧`,
+    (n) => `${n}用完了，先歇口气`,
+    (n) => `${n}见底了，起来走动走动`,
+    (n) => `${n}清零，趁重置前摸会儿鱼`,
+  ],
+};
+function sevText(sev, noun) {
+  const arr = SEV_TMPL[sev];
+  const t = arr[Math.floor(Math.random() * arr.length)];
+  return t(noun || '本期额度');
+}
+const SEV_BAR = { 0: '', 1: 'warn', 2: 'danger', 3: 'danger' };
+
+function quotaCardHtml(it, provId) {
+  if (!it) {
+    return `<div class="qcard empty"><div class="q-percent">--</div></div>`;
+  }
+  if (it.label === '余额') {
+    const val = fmtNum(it.current);
+    const unit = it.unit ? ' ' + esc(it.unit) : '';
+    return `
+    <div class="qcard">
+      <div class="q-label">账户余额</div>
+      <div class="q-percent">${esc(val)}<span class="pct">${unit}</span></div>
+    </div>`;
+  }
+  let label;
+  if (it && it.label === '月' && provId === 'zhipu') label = 'MCP 每月额度';
+  else label = QUOTA_SLOT_LABEL[it && it.label] || ((it && it.label) ? it.label + '额度' : '');
+  let percent = it.percentage;
+  if (percent === undefined && typeof it.current === 'number' && typeof it.total === 'number' && it.total > 0) {
+    percent = Math.round(it.current / it.total * 100);
+  }
+  const hasNum = !!(it.details && it.details.length);
+  let valText = '';
+  if (it.details && it.details.length) {
+    const parts = [];
+    if (it.total !== undefined) parts.push('额度：' + fmtNum(it.total));
+    for (const d of it.details) parts.push((MODEL_CODE_NAMES[d.code] || d.code) + ' ' + fmtNum(d.usage));
+    valText = parts.join('，');
+  }
+  const tPct = timeProgress(it.label, it.resetTime);
+  const sev = slotSeverity(percent, tPct);
+  const barColor = sev === undefined ? '' : SEV_BAR[sev];
+  let barArea = '';
+  if (percent !== undefined) {
+    const fill = `<div class="q-bar-fill ${barColor}" style="width:${Math.min(100, Math.max(0, percent))}%"></div>`;
+    const tw = tPct !== undefined ? tPct : 0;
+    const tText = tPct !== undefined ? `时间 ${tPct}%` : '时间 --';
+    barArea = `
+    <div class="q-bars">
+      <div class="q-bar-row"><span class="q-ico">💲</span><div class="q-bar">${fill}</div></div>
+      <div class="q-bar-row"><span class="q-ico">🕐</span><div class="q-bar"><div class="q-bar-fill time" style="width:${tw}%"></div></div></div>
+      <span class="q-tpct">${tText}</span>
+    </div>`;
+  }
+  const reset = (it.resetTime !== undefined && it.resetTime !== null && it.resetTime !== '')
+    ? `<div class="q-reset">重置时间 ${esc(fmtReset(it.label, it.resetTime))}</div>` : '';
+  const stIco = (sev !== undefined && SEV[sev]) ? `<span class="q-status" title="${esc(sevText(sev))}">${SEV[sev].ico}</span>` : '';
+  return `
+    <div class="qcard">
+      <div class="q-label">${label}${stIco}</div>
+      <div class="q-percent">${percent !== undefined ? percent + '<span class="pct">%</span>' : '--'}</div>
+      ${barArea}
+      ${hasNum ? `<div class="q-val">${esc(valText)}</div>` : ''}
+      ${reset}
+    </div>`;
+}
+
+/* ---------- 详情页（原始数据视图） ---------- */
+function renderDetail() {
+  const provs = (snap && snap.providers) || [];
+  const prov = provs.find(p => p.id === detailId) || provs[0];
+  const sel = $('#providerSel');
+  sel.innerHTML = '';
+  for (const p of provs) {
+    const o = document.createElement('option');
+    o.value = p.id;
+    o.textContent = p.name + (p.status === 'ok' ? ' ✓' : '');
+    sel.appendChild(o);
+  }
+  if (prov) sel.value = prov.id;
+  const kpiBox = $('#kpis');
+  const raw = $('#rawData');
+  if (!prov) {
+    kpiBox.innerHTML = '';
+    raw.textContent = '暂无平台数据';
+    setConn('detail', '', '无数据');
+    return;
+  }
+  detailId = prov.id;
+  const cv = ((cfgView && cfgView.providers) || []).find(p => p.id === prov.id) || {};
+  const okCls = prov.status === 'ok' ? 'ok' : 'err';
+  const statusText = prov.status === 'ok' ? '正常' : prov.status === 'token_invalid' ? 'token 失效' : '采集失败';
+  kpiBox.innerHTML = `
+    <div class="kpi"><div class="label">状态</div><div class="value ${okCls}">${esc(statusText)}</div></div>
+    <div class="kpi"><div class="label">上次成功采集</div><div class="value">${esc(prov.last_success_at ? fmtTime(prov.last_success_at) : '--')}</div></div>
+    <div class="kpi"><div class="label">错误</div><div class="value ${prov.error ? 'err' : 'ok'}">${esc(prov.error ? (prov.error.message || prov.error.code) : '无')}</div></div>
+    <div class="kpi"><div class="label">Base URL</div><div class="value" style="font-size:15px">${esc(cv.base_url || '--')}</div></div>
+    <div class="kpi"><div class="label">路径</div><div class="value" style="font-size:15px">${esc((cv.paths || []).join(' , '))}</div></div>
+    <div class="kpi"><div class="label">鉴权方式</div><div class="value">${esc(cv.auth_style || 'bearer')}</div></div>`;
+  raw.textContent = prov.data === null || prov.data === undefined ? '（暂无数据：尚未成功采集）' : pretty(resolveData(prov.data));
+  setConn('detail', okCls, provs.filter(p => p.status === 'ok').length + '/' + provs.length + ' 个平台有数据');
+}
+
+/* ---------- 视图切换 ---------- */
+function enterDetail(provId) {
+  detailId = provId;
+  switchView('detail');
+}
+function switchView(v) {
+  view = v;
+  $('#viewHome').style.display = v === 'home' ? 'block' : 'none';
+  $('#viewDetail').style.display = v === 'detail' ? 'block' : 'none';
+  $('#providerSel').style.display = v === 'detail' ? '' : 'none';
+  $('#tabHome').classList.toggle('active', v === 'home');
+  $('#tabDetail').classList.toggle('active', v === 'detail');
+  if (v === 'detail') renderDetail();
+}
+
+/* ---------- banner / 页脚 / 登录态 ---------- */
+function renderBanners() {
+  const box = $('#banners');
+  box.innerHTML = '';
+  if (!cfgView) return;
+  const a = cfgView.auth || {};
+  if (a.mode === 'none') {
+    box.innerHTML += `<div class="banner warn">⚠️ 当前无鉴权，任何可访问者均可查看/修改配置</div>`;
+  }
+  if (a.mode === 'admin' && a.password_is_default) {
+    box.innerHTML += `<div class="banner err">🚨 正在使用默认密码，请立即修改（设置 → 修改管理密码）</div>`;
+  }
+  if (cfgView.listen && cfgView.listen.host === '0.0.0.0') {
+    box.innerHTML += `<div class="banner warn">⚠️ 服务监听 0.0.0.0，暴露于所有网络接口，请注意安全风险</div>`;
+  }
+}
+function renderHeaderAuth() {
+  const btn = $('#authBtn');
+  const admin = cfgView && cfgView.auth && cfgView.auth.mode === 'admin';
+  btn.style.display = admin ? '' : 'none';
+  if (admin) btn.textContent = cfgView.auth.authenticated ? '登出' : '登录';
+}
+function renderFooter() {
+  $('#ftVer').textContent = (snap && snap.version) || '--';
+  let maxT = null;
+  for (const p of (snap && snap.providers) || []) {
+    if (p.last_success_at && (!maxT || p.last_success_at > maxT)) maxT = p.last_success_at;
+  }
+  $('#ftLast').textContent = maxT ? fmtTime(maxT) : '--';
+}
+
+async function refreshCfgView() {
+  cfgView = await api('/api/config');
+  renderBanners();
+  renderHeaderAuth();
+}
+
+/* ---------- 轮询（常规 60s；页面启动/有平台未就绪时 1s 快速轮询） ----------
+ * 页面首要任务：尽快显示服务端已有的最新结果。故启动后以 1s 间隔轮询，
+ * 直到所有平台离开「尚未完成首次采集」（再保持 5s 余量）后回落到 60s 常规节奏。
+ * 后端采集节奏独立于此（tick 循环自驱），轮询只是读内存快照。 */
+const POLL_INTERVAL_MS = 60000;
+const FAST_POLL_MS = 1000;
+const COLD_START_GRACE_MS = 5000; // 全部就绪后再保持 5s 快速轮询余量
+const FAST_POLL_CAP_MS = 90000;   // 一轮快速期硬上限（多平台错峰 + 25s 出站超时的最坏冷启动）
+
+let pollTimer = null;
+let fastDeadline = 0;
+let fastCap = 0;
+
+// 未就绪 = 仍有平台处于「尚未完成首次采集」（冷启动或刚添加的平台）
+function isUnsettled(s) {
+  return !!(s && (s.providers || []).some(p => p.error && p.error.code === 'NOT_COLLECTED_YET'));
+}
+
+function enterFastPoll() {
+  const now = Date.now();
+  if (fastCap <= now) fastCap = now + FAST_POLL_CAP_MS;
+  fastDeadline = Math.min(now + COLD_START_GRACE_MS, fastCap);
+}
+
+function renderPollInfo() {
+  const base = 'revision ' + (snap ? snap.revision : 0);
+  if (Date.now() < fastDeadline) {
+    $('#pollInfo').textContent = `${base} · 冷启动快速刷新，剩余 ${Math.max(1, Math.ceil((fastDeadline - Date.now()) / 1000))}s`;
+  } else {
+    $('#pollInfo').textContent = base;
+  }
+}
+
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  const now = Date.now();
+  if (isUnsettled(snap) && now < fastCap) {
+    enterFastPoll(); // 还有平台未就绪：续期快速轮询（不超硬上限）
+  }
+  const fast = now < fastDeadline;
+  pollTimer = setTimeout(pollTick, fast ? FAST_POLL_MS : POLL_INTERVAL_MS);
+  renderPollInfo();
+}
+
+async function pollTick() {
+  await pollNow(false);
+  schedulePoll();
+}
+
+async function pollNow(force) {
+  try {
+    const j = await api('/api/quotas');
+    const provs = j.providers || [];
+    const okCount = provs.filter(p => p.status === 'ok').length;
+    const key = j.revision + '|' + j.collected_at;
+    const changed = force || key !== lastKey;
+    if (changed) {
+      lastKey = key;
+      snap = j;
+      renderHomeGrid();
+      renderFooter();
+      if (view === 'detail') renderDetail();
+    }
+    setConn('home', provs.length === 0 ? '' : (okCount ? 'ok' : 'err'),
+      provs.length === 0 ? '尚无平台' : `${okCount}/${provs.length} 个平台有数据`);
+    renderPollInfo();
+  } catch (e) {
+    setConn('home', 'err', '连接服务端失败');
+  }
+}
+
+/* ---------- 设置面板 ---------- */
+async function openSettings() {
+  // 每次打开都取最新配置：PUT 是全量替换，避免用过期视图覆盖服务端新状态
+  try { await refreshCfgView(); } catch (e) { toast('加载配置失败'); return; }
+  editingId = (cfgView.providers || [])[0] && cfgView.providers[0].id;
+  $('#sAuthMode').value = cfgView.auth.mode;
+  $('#sPassword').value = '';
+  $('#sInterval').value = cfgView.collector.interval_base_s;
+  $('#sHost').value = cfgView.listen.host;
+  $('#sPort').value = cfgView.listen.port;
+  $('#settingsError').classList.remove('open');
+  $('#settingsError').textContent = '';
+  renderProvList();
+  renderEditForm();
+  $('#settingsModal').classList.add('open');
+}
+function renderProvList() {
+  const box = $('#provItems');
+  box.innerHTML = '';
+  (cfgView.providers || []).forEach(p => {
+    const div = document.createElement('div');
+    div.className = 'prov-item' + (p.id === editingId ? ' active' : '');
+    div.innerHTML = `<span class="prov-name">${esc(p.name)}${p.has_token ? ' ✓' : ''}</span><span class="del" title="删除">✕</span>`;
+    div.onclick = e => {
+      if (e.target.classList.contains('del')) return;
+      flushForm();
+      editingId = p.id;
+      renderProvList();
+      renderEditForm();
+    };
+    div.querySelector('.del').onclick = e => {
+      e.stopPropagation();
+      if (!confirm(`删除平台「${p.name}」？（保存后生效）`)) return;
+      cfgView.providers = cfgView.providers.filter(x => x.id !== p.id);
+      if (editingId === p.id) editingId = (cfgView.providers[0] || {}).id;
+      renderProvList();
+      renderEditForm();
+    };
+    box.appendChild(div);
+  });
+}
+function renderEditForm() {
+  const p = (cfgView.providers || []).find(x => x.id === editingId);
+  if (!p) { $('#fName').value = ''; $('#fBase').value = ''; $('#fPaths').value = ''; $('#fHeaders').value = ''; $('#fToken').value = ''; $('#fId').value = ''; return; }
+  $('#fId').value = p.id;
+  $('#fName').value = p.name;
+  $('#fBase').value = p.base_url;
+  $('#fAuthStyle').value = p.auth_style || 'bearer';
+  $('#fPaths').value = (p.paths || []).join('\n');
+  $('#fHeaders').value = Object.entries(p.extra_headers || {}).map(([k, v]) => k + ': ' + v).join('\n');
+  $('#fToken').value = ''; // token 只写不回显
+  const authed = cfgView.auth.authenticated;
+  $('#fTokenTip').textContent = authed
+    ? (p.has_token ? `已保存（${p.token_masked || '****'}），留空 = 保留原值` : '未配置 token，直接填写即可')
+    : '未登录：留空 = 保留原值；none 模式下不显示掩码';
+}
+function flushForm() {
+  const p = (cfgView.providers || []).find(x => x.id === editingId);
+  if (!p) return;
+  const newId = $('#fId').value.trim() || p.id;
+  p.id = newId;
+  p.name = $('#fName').value.trim() || p.name;
+  p.base_url = $('#fBase').value.trim();
+  p.auth_style = $('#fAuthStyle').value;
+  p.paths = $('#fPaths').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!p.paths.length) p.paths = ['/'];
+  p._tokenInput = $('#fToken').value;
+  const eh = {};
+  $('#fHeaders').value.split('\n').forEach(line => {
+    const i = line.indexOf(':');
+    if (i > 0) {
+      const k = line.slice(0, i).trim();
+      const v = line.slice(i + 1).trim();
+      if (k) eh[k] = v;
+    }
+  });
+  p.extra_headers = eh;
+  editingId = newId;
+}
+function buildPutBody() {
+  flushForm();
+  const providers = (cfgView.providers || []).map(p => {
+    const o = {
+      id: p.id, name: p.name, base_url: p.base_url,
+      paths: p.paths, auth_style: p.auth_style || 'bearer',
+      extra_headers: p.extra_headers || {},
+    };
+    if (p._tokenInput) o.token = p._tokenInput;
+    return o;
+  });
+  const body = {
+    version: 3,
+    listen: { host: $('#sHost').value.trim(), port: parseInt($('#sPort').value, 10) },
+    collector: Object.assign({}, cfgView.collector, { interval_base_s: parseInt($('#sInterval').value, 10) }),
+    auth: { mode: $('#sAuthMode').value },
+    providers,
+  };
+  const pw = $('#sPassword').value;
+  if (pw) body.auth.password = pw;
+  return body;
+}
+function showSettingsError(e) {
+  const box = $('#settingsError');
+  let msg = e.message || '保存失败';
+  if (e.details && e.details.length) {
+    msg += '\n' + e.details.map(d => `· ${d.field}: ${d.message}`).join('\n');
+  }
+  box.textContent = msg;
+  box.classList.add('open');
+}
+async function saveSettings() {
+  const oldListen = { host: cfgView.listen.host, port: cfgView.listen.port };
+  let body;
+  try { body = buildPutBody(); } catch (e) { toast('表单读取失败'); return; }
+  try {
+    await api('/api/config', { method: 'PUT', body: JSON.stringify(body) });
+    $('#settingsError').classList.remove('open');
+    $('#settingsModal').classList.remove('open');
+    toast('已保存并热生效');
+    if (body.listen.host !== oldListen.host || body.listen.port !== oldListen.port) {
+      toast('监听地址/端口已保存，重启程序后生效');
+    }
+    await refreshCfgView();
+    await pollNow(true);
+    if (isUnsettled(snap)) enterFastPoll(); // 新增平台未就绪 → 快速轮询
+    schedulePoll();
+  } catch (e) {
+    if (e.status === 401) {
+      openLogin('保存配置需要管理员登录');
+    } else {
+      showSettingsError(e);
+    }
+  }
+}
+async function testConnection() {
+  flushForm();
+  const p = (cfgView.providers || []).find(x => x.id === editingId);
+  if (!p) { toast('请先选择平台'); return; }
+  const body = { provider_id: p.id };
+  if (p._tokenInput) body.token = p._tokenInput;
+  const btn = $('#testBtn');
+  btn.disabled = true;
+  btn.textContent = '测试中...';
+  try {
+    const r = await api('/api/test', { method: 'POST', body: JSON.stringify(body) });
+    toast(`连接正常（${r.latency_ms}ms）`);
+  } catch (e) {
+    if (e.status === 401) openLogin('测试连接需要管理员登录');
+    else toast('测试失败：' + (e.message || '未知错误'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '测试连接';
+  }
+}
+
+/* ---------- 登录 / 登出 ---------- */
+function openLogin(reason) {
+  $('#loginErr').textContent = '';
+  $('#loginErr').classList.remove('open');
+  $('#loginPassword').value = '';
+  if (reason) {
+    $('#loginErr').textContent = reason;
+    $('#loginErr').classList.add('open');
+  }
+  $('#loginModal').classList.add('open');
+  $('#loginPassword').focus();
+}
+async function doLogin() {
+  const pw = $('#loginPassword').value;
+  if (!pw) { $('#loginErr').textContent = '请输入密码'; $('#loginErr').classList.add('open'); return; }
+  try {
+    await api('/api/login', { method: 'POST', body: JSON.stringify({ password: pw }) });
+    $('#loginModal').classList.remove('open');
+    $('#loginPassword').value = '';
+    toast('已登录');
+    await refreshCfgView();
+    renderEditForm();
+  } catch (e) {
+    let msg = e.message;
+    if (e.code === 'INVALID_CREDENTIALS') msg = '密码错误';
+    else if (e.code === 'RATE_LIMITED') msg = `失败次数过多，请 ${e.retry_after_s || 600} 秒后再试`;
+    $('#loginErr').textContent = msg;
+    $('#loginErr').classList.add('open');
+  }
+}
+async function doLogout() {
+  try { await api('/api/logout', { method: 'POST' }); } catch (e) { /* 忽略 */ }
+  toast('已登出');
+  await refreshCfgView();
+  renderEditForm();
+}
+
+/* ---------- 事件绑定 ---------- */
+$('#tabHome').onclick = () => switchView('home');
+$('#tabDetail').onclick = () => switchView('detail');
+$('#refreshBtn').onclick = async () => {
+  // 手动刷新：立即拉取并重置轮询计时器；若仍有未就绪平台则重新进入快速轮询
+  clearTimeout(pollTimer);
+  await pollNow(true);
+  if (isUnsettled(snap)) enterFastPoll();
+  schedulePoll();
+};
+// 切回前台立即刷新：浏览器会对后台标签页节流定时器，回前台应马上拿最新快照
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    clearTimeout(pollTimer);
+    pollNow(true).then(schedulePoll);
+  }
+});
+$('#settingsBtn').onclick = openSettings;
+$('#closeModalBtn').onclick = () => $('#settingsModal').classList.remove('open');
+$('#settingsModal').addEventListener('click', e => { if (e.target === e.currentTarget) e.target.classList.remove('open'); });
+$('#saveBtn').onclick = saveSettings;
+$('#testBtn').onclick = testConnection;
+$('#addProvBtn').onclick = () => {
+  flushForm();
+  const id = 'new-' + Date.now().toString(36);
+  cfgView.providers.push({ id, name: '新平台', base_url: 'https://', paths: ['/'], auth_style: 'bearer', extra_headers: {}, has_token: false });
+  editingId = id;
+  renderProvList();
+  renderEditForm();
+};
+$('#delProvBtn').onclick = () => {
+  const p = (cfgView.providers || []).find(x => x.id === editingId);
+  if (!p) return;
+  if (!confirm(`删除平台「${p.name}」？（保存后生效）`)) return;
+  cfgView.providers = cfgView.providers.filter(x => x.id !== p.id);
+  editingId = (cfgView.providers[0] || {}).id;
+  renderProvList();
+  renderEditForm();
+};
+$('#providerSel').onchange = e => { detailId = e.target.value; renderDetail(); };
+$('#authBtn').onclick = () => {
+  if (cfgView && cfgView.auth && cfgView.auth.authenticated) doLogout();
+  else openLogin('');
+};
+$('#loginOkBtn').onclick = doLogin;
+$('#loginCancelBtn').onclick = () => $('#loginModal').classList.remove('open');
+$('#loginModal').addEventListener('click', e => { if (e.target === e.currentTarget) e.target.classList.remove('open'); });
+$('#loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+/* ---------- 启动 ---------- */
+(async function init() {
+  try { await refreshCfgView(); } catch (e) { /* 服务端未就绪时静默，轮询会重试 */ }
+  enterFastPoll(); // 冷启动等待 5s 快速轮询
+  await pollNow(true);
+  schedulePoll();
+})();
+</script>
+</body>
+</html>
