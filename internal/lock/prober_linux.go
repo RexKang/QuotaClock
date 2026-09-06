@@ -16,6 +16,7 @@ const userHZ = 100
 
 // probeAlive unix 探活：kill(pid,0) + /proc/<pid>/stat starttime 比对（PID 复用防护）。
 //   - nil=存活；ESRCH=已死；EPERM=存活（他人进程）；未知错误 → 保守存活并上报
+//   - 比对两侧同为「btime + ticks/USER_HZ」的 unix 秒（与写锁侧 selfStartUnix 同一公式）
 func probeAlive(pid int, start int64) (bool, error) {
 	err := syscall.Kill(pid, 0)
 	if err == nil {
@@ -23,7 +24,11 @@ func probeAlive(pid int, start int64) (bool, error) {
 		if st < 0 {
 			return true, nil // 读取失败保守按存活
 		}
-		return st == start, nil
+		btime := bootTimeUnix()
+		if btime <= 0 {
+			return true, nil
+		}
+		return btime+st/userHZ == start, nil
 	}
 	if errors.Is(err, syscall.ESRCH) {
 		return false, nil
