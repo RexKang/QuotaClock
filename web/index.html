@@ -164,7 +164,7 @@
   <select id="providerSel" title="切换平台" style="display:none"></select>
   <button id="refreshBtn">刷新</button>
   <button id="authBtn" class="ghost" style="display:none">登录</button>
-  <button id="settingsBtn" class="ghost">设置</button>
+  <button id="settingsBtn" class="ghost" style="display:none">设置</button>
 </header>
 
 <div id="banners" class="banners"></div>
@@ -931,10 +931,14 @@ function renderBanners() {
   }
 }
 function renderHeaderAuth() {
+  const auth = cfgView && cfgView.auth ? cfgView.auth : null;
+  const admin = !!auth && auth.mode === 'admin';
   const btn = $('#authBtn');
-  const admin = cfgView && cfgView.auth && cfgView.auth.mode === 'admin';
   btn.style.display = admin ? '' : 'none';
-  if (admin) btn.textContent = cfgView.auth.authenticated ? '登出' : '登录';
+  if (admin) btn.textContent = auth.authenticated ? '登出' : '登录';
+  // 设置入口：admin 模式登录后才可见（未登录前不可见，260906）；none 模式全开放恒可见
+  const canEdit = auth ? (admin ? auth.authenticated : true) : false;
+  $('#settingsBtn').style.display = canEdit ? '' : 'none';
 }
 function renderFooter() {
   $('#ftVer').textContent = (snap && snap.version) || '--';
@@ -1210,6 +1214,7 @@ async function doLogin() {
 async function doLogout() {
   try { await api('/api/logout', { method: 'POST' }); } catch (e) { /* 忽略 */ }
   toast('已登出');
+  $('#settingsModal').classList.remove('open'); // 设置入口随登出隐藏，面板同步关闭
   await refreshCfgView();
   renderEditForm();
 }
