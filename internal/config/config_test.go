@@ -222,6 +222,21 @@ func TestViewRuneMask(t *testing.T) { // C-config-23
 	}
 }
 
+// TestViewEmptyProviders：空配置（新环境模板）providers 序列化为 [] 而非 null，
+// 否则前端 addProvBtn 的 cfgView.providers.push 在 null 上崩溃（260906 用户实测）。
+func TestViewEmptyProviders(t *testing.T) {
+	f := &File{Version: 3, Listen: DefaultListen(), Collector: DefaultCollector(),
+		Auth: FileAuth{Mode: AuthModeAdmin}, Providers: []FileProvider{}}
+	v := BuildView(f, nil, false, true)
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"providers":[]`) {
+		t.Fatalf("空配置 providers 应序列化为 [] 而非 null: %s", b)
+	}
+}
+
 func TestValidateFileParity(t *testing.T) {
 	f, _ := viewFixture()
 	if errs := ValidateFile(f); len(errs) != 0 {

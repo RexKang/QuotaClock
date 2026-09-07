@@ -357,6 +357,19 @@ func TestGetConfigMasking(t *testing.T) { // C-srv-07 + C-config-17/18
 	}
 }
 
+// TestGetConfigEmptyProviders：新环境（模板空配置）GET /api/config 的 providers
+// 必须是 JSON 数组 [] 而非 null——前端添加平台按钮直接对其 push（260906 实测回归）。
+func TestGetConfigEmptyProviders(t *testing.T) {
+	env := newEnv(t, nil) // 不注入 provider：模板即空配置
+	code, m, _ := env.doJSON("GET", "/api/config", nil, nil)
+	if code != 200 {
+		t.Fatal(code)
+	}
+	if arr, ok := m["providers"].([]any); !ok || len(arr) != 0 {
+		t.Fatalf("providers 应为 JSON 数组 []，got %v (%T)", m["providers"], m["providers"])
+	}
+}
+
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)

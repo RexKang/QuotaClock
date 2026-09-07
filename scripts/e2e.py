@@ -173,6 +173,7 @@ def scenario_first_start(binpath):
     code, _, view = http("GET", f"{BASE}:{port}/api/config")
     s = json.dumps(view)
     check("GET config 200", code == 200)
+    check("config providers 为数组 []（非 null，添加平台依赖）", view["providers"] == [])
     check("password_is_default=true（默认密码未改）", view["auth"]["password_is_default"] is True)
     check("无 token/token_cipher 字段", "token_cipher" not in s and '"token":' not in s)
     out = subprocess.run([binpath, "-version"], capture_output=True, text=True)

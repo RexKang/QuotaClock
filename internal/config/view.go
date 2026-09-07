@@ -58,6 +58,9 @@ func BuildView(f *File, masks map[string]string, authenticated, passwordIsDefaul
 			PasswordIsDefault: passwordIsDefault,
 			Authenticated:     authenticated,
 		},
+		// 空配置序列化为 [] 而非 null（前端 renderEditForm/addProvBtn 按 provider 数组直用，
+		// nil 切片序列化成 null 会让「新环境添加平台」在 cfgView.providers.push 处崩溃）。
+		Providers: []ViewProvider{},
 	}
 	for i := range f.Providers {
 		fp := &f.Providers[i]

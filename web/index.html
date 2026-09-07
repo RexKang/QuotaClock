@@ -1238,6 +1238,7 @@ $('#saveBtn').onclick = saveSettings;
 $('#testBtn').onclick = testConnection;
 $('#addProvBtn').onclick = () => {
   flushForm();
+  if (!cfgView.providers) cfgView.providers = []; // null 兜底（服务端已根治为 []，防旧会话视图）
   const id = 'new-' + Date.now().toString(36);
   cfgView.providers.push({ id, name: '新平台', base_url: 'https://', paths: ['/'], auth_style: 'bearer', extra_headers: {}, has_token: false });
   editingId = id;
