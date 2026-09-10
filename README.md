@@ -5,7 +5,7 @@
 后台常驻采集器定时拉取各平台用量，浏览器访问 `http://127.0.0.1:8787` 即可打开看板，
 无需任何本地配置；一份服务端配置全设备共享。
 
-![Version](https://img.shields.io/badge/Version-0.2.0-blue)
+![Version](https://img.shields.io/badge/Version-0.2.3-blue)
 ![Platform](https://img.shields.io/badge/Platform-智谱%20%7C%20DeepSeek%20%7C%20Kimi%20%7C%20OpenCode-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
@@ -192,7 +192,7 @@ quotaclock -admin-password 新密码
 ## 构建
 
 ```bash
-go build -ldflags "-s -w -X main.version=v0.2.0" -o quotaclock ./cmd/quotaclock
+go build -ldflags "-s -w -X main.version=v0.2.3" -o quotaclock ./cmd/quotaclock
 go test ./...                        # 单元 + 集成（-race 建议）
 python scripts/e2e.py ./quotaclock   # E2E 演练（需要 python3）
 ```
