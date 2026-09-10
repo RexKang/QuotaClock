@@ -538,7 +538,7 @@ function extractQuotaItems(provSnap) {
     let otot = toN(od.limit) ?? toN(od.total) ?? toN(od.quota) ?? toN(od.usage) ?? toN(od.usageLimit) ?? toN(od.max) ?? toN(od.cap);
     if (ocur === undefined && toN(od.remaining) !== undefined && otot !== undefined) ocur = otot - toN(od.remaining);
     else if (ocur === undefined && toN(obj.remaining) !== undefined && otot !== undefined) ocur = otot - toN(obj.remaining);
-    const oreset = od.reset_at ?? od.resetAt ?? od.reset_time ?? od.resetTime ?? od.reset ?? od.nextResetTime ?? od.nextReset ?? obj.reset_at ?? obj.resetAt ?? obj.reset_time ?? obj.resetTime ?? obj.reset ?? obj.nextResetTime ?? obj.nextReset;
+    const oreset = od.reset_at ?? od.resetAt ?? od.reset_time ?? od.resetTime ?? od.resetsAt ?? od.reset ?? od.nextResetTime ?? od.nextReset ?? obj.reset_at ?? obj.resetAt ?? obj.reset_time ?? obj.resetTime ?? obj.resetsAt ?? obj.reset ?? obj.nextResetTime ?? obj.nextReset;
     const opercent = toN(od.percentage) ?? toN(od.usagePercent) ?? toN(od.percent) ?? toN(od.usage_percentage);
     if (label && (typeof ocur === 'number' || typeof otot === 'number' || typeof opercent === 'number')) {
       const details = Array.isArray(obj.usageDetails)
@@ -561,7 +561,7 @@ function extractQuotaItems(provSnap) {
         let tot = toN(d.limit) ?? toN(d.total) ?? toN(d.quota) ?? toN(d.usage) ?? toN(d.usageLimit) ?? toN(v.limit) ?? toN(v.total) ?? toN(v.quota) ?? toN(v.usage) ?? toN(v.max) ?? toN(v.cap);
         if (cur === undefined && toN(d.remaining) !== undefined && tot !== undefined) cur = tot - toN(d.remaining);
         else if (cur === undefined && toN(v.remaining) !== undefined && tot !== undefined) cur = tot - toN(v.remaining);
-        const reset = d.reset_at ?? d.resetAt ?? d.reset_time ?? d.resetTime ?? d.reset ?? d.nextResetTime ?? d.nextReset ?? v.reset_at ?? v.resetAt ?? v.reset_time ?? v.resetTime ?? v.reset ?? v.nextResetTime ?? v.nextReset ?? v.refreshTime;
+        const reset = d.reset_at ?? d.resetAt ?? d.reset_time ?? d.resetTime ?? d.resetsAt ?? d.reset ?? d.nextResetTime ?? d.nextReset ?? v.reset_at ?? v.resetAt ?? v.reset_time ?? v.resetTime ?? v.resetsAt ?? v.reset ?? v.nextResetTime ?? v.nextReset ?? v.refreshTime;
         const percent = toN(d.percentage) ?? toN(d.usagePercent) ?? toN(d.percent) ?? toN(v.percentage) ?? toN(v.usagePercent) ?? toN(v.percent);
         if (nameLabel && (typeof cur === 'number' || typeof tot === 'number' || typeof percent === 'number')) {
           items.push({ label: nameLabel, current: typeof cur === 'number' ? cur : undefined, total: typeof tot === 'number' ? tot : undefined, percentage: typeof percent === 'number' ? percent : undefined, resetTime: reset, windowDur: windowDurOf(nameLabel, v.window) });
@@ -575,7 +575,7 @@ function extractQuotaItems(provSnap) {
           const label = periodOf(k) || periodOf(p) || (/(^|\.)rolling/i.test(p) ? '5小时' : null);
           const bal = /(balance|amount|credit)/i.test(k) && !/(used|consumed)/i.test(k) && label === null;
           if (label) {
-            const r2 = v.resetTime ?? v.reset ?? v.refreshTime ?? v.nextResetTime ?? v.nextReset;
+            const r2 = v.resetTime ?? v.resetsAt ?? v.reset ?? v.refreshTime ?? v.nextResetTime ?? v.nextReset;
             const rt = r2 !== undefined ? r2 : (typeof v.resetInSec === 'number' ? new Date(Date.now() + v.resetInSec * 1000) : undefined);
             items.push({ label, current: typeof c === 'number' ? c : undefined, total: typeof t === 'number' ? t : undefined, percentage: typeof pct === 'number' ? pct : undefined, resetTime: rt, windowDur: windowDurOf(label, v.window) });
           } else if (bal) {

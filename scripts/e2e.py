@@ -308,12 +308,12 @@ def scenario_migration(binpath, mock):
         check("enabled=false 跳过（4 个导入）", len(mig["providers"]) == 4 and "disabled" not in byid)
         check("kimi 自动改写 base_url", byid["moonshot"]["base_url"] == "https://api.kimi.com/coding/v1")
         check("kimi paths 序保持", byid["moonshot"]["paths"] == ["/usages", "/me", "/models"])
-        check("opencode 改写+cookie+头", byid["opencode"]["base_url"] == "https://opencode.ai"
-              and byid["opencode"]["auth_style"] == "cookie"
-              and byid["opencode"]["extra_headers"].get("x-server-id") == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-              and byid["opencode"]["extra_headers"].get("x-server-instance") == "server-fn:5")
+        check("opencode 改写官方用量接口", byid["opencode"]["base_url"] == "https://opencode.ai/zen/go/v1"
+              and byid["opencode"]["paths"] == ["/usage"]
+              and not byid["opencode"].get("token_cipher"))
         log = inst.log()
-        check("迁移 INFO 对照日志", "迁移改写" in log and "api.kimi.com/coding/v1" in log)
+        check("迁移 INFO 对照日志", "迁移改写" in log and "api.kimi.com/coding/v1" in log and "zen/go/v1" in log)
+        check("opencode token 未迁移 WARN", "无法转换为 API Key" in log)
         check("迁移后为默认密码态（红 banner 条件）", "正在使用默认密码" in log)
     finally:
         inst.kill()

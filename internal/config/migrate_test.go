@@ -143,22 +143,25 @@ func TestMigrateV1PlanA(t *testing.T) { // C-config-21
 		t.Fatalf("应 INFO 记录改写对照: %s", joined)
 	}
 
-	// opencode：→ https://opencode.ai + cookie + x-server-id/x-server-instance，path 原样（含 query）
+	// opencode：改写为官方用量接口（260907）；旧 Cookie token 无法转 API Key，不迁移 + WARN
 	o := byID["opencode"]
-	if o.BaseURL != "https://opencode.ai" {
+	if o.BaseURL != "https://opencode.ai/zen/go/v1" {
 		t.Fatalf("opencode base_url = %q", o.BaseURL)
 	}
-	if o.AuthStyle != AuthStyleCookie {
-		t.Fatalf("opencode auth_style = %q", o.AuthStyle)
+	if len(o.Paths) != 1 || o.Paths[0] != "/usage" {
+		t.Fatalf("opencode paths = %v", o.Paths)
 	}
-	if o.ExtraHeaders["x-server-id"] != "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" {
-		t.Fatalf("opencode x-server-id = %q", o.ExtraHeaders["x-server-id"])
+	if o.AuthStyle != "" {
+		t.Fatalf("opencode auth_style = %q（应为缺省 bearer）", o.AuthStyle)
 	}
-	if o.ExtraHeaders["x-server-instance"] != "server-fn:5" {
-		t.Fatalf("opencode x-server-instance = %q", o.ExtraHeaders["x-server-instance"])
+	if o.TokenCipher != "" {
+		t.Fatal("opencode 旧 Cookie token 不应迁移（无法转 API Key）")
 	}
-	if len(o.Paths) != 1 || !strings.HasPrefix(o.Paths[0], "/_server?id=") {
-		t.Fatalf("opencode paths = %v（应原样保留 query）", o.Paths)
+	if !strings.Contains(joined, "无法转换为 API Key") {
+		t.Fatalf("应 WARN token 未迁移提示: %s", joined)
+	}
+	if !strings.Contains(joined, "/zen/go/v1") {
+		t.Fatalf("应 INFO 记录改写对照: %s", joined)
 	}
 }
 

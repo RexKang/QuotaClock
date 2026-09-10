@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -33,10 +32,9 @@ func IsDefaultPassword(hash string) bool {
 const (
 	v1ProxyPrefix = "http://127.0.0.1:8787"
 	kimiUpstream  = "https://api.kimi.com/coding/v1"
-	openUpstream  = "https://opencode.ai"
+	// 260907 起 opencode 提供官方用量接口（Bearer API Key），替代 Cookie+/_server 逆向。
+	openUsageBase = "https://opencode.ai/zen/go/v1"
 )
-
-var serverIDRe = regexp.MustCompile(`[?&]id=([a-f0-9]+)`)
 
 type v1Endpoint struct {
 	Method string `json:"method"`
@@ -114,6 +112,8 @@ func migrateProvider(vp *v1Provider, seal SealFunc, infof, warnf func(string, ..
 		BaseURL: vp.BaseURL,
 		Paths:   []string{},
 	}
+	// 改写分支可置 true：该 provider 的旧 token 无法用于新接口（如 opencode Cookie→API Key），不迁移
+	skipToken := false
 	// endpoints → paths（保持顺序，仅 GET；params 非空且非 "{" 时 WARN）
 	remainder := ""
 	for _, ep := range vp.Endpoints {
@@ -142,26 +142,14 @@ func migrateProvider(vp *v1Provider, seal SealFunc, infof, warnf func(string, ..
 		}
 		infof("迁移改写：%s → base_url=%s（paths[0] 并入前缀余量 %q）", vp.BaseURL, fp.BaseURL, remainder)
 	case base == v1ProxyPrefix+"/opencode" || strings.HasPrefix(base, v1ProxyPrefix+"/opencode/"):
-		remainder = base[len(v1ProxyPrefix+"/opencode"):]
-		fp.BaseURL = openUpstream
-		if remainder != "" && remainder != "/" {
-			fp.Paths[0] = remainder + fp.Paths[0]
-		}
-		fp.AuthStyle = AuthStyleCookie
-		for _, p := range fp.Paths {
-			if m := serverIDRe.FindStringSubmatch(p); m != nil {
-				if fp.ExtraHeaders == nil {
-					fp.ExtraHeaders = map[string]string{}
-				}
-				fp.ExtraHeaders["x-server-id"] = m[1]
-				fp.ExtraHeaders["x-server-instance"] = "server-fn:5"
-				break
-			}
-		}
-		if _, ok := fp.ExtraHeaders["x-server-id"]; !ok {
-			warnf("迁移：provider %q 的 path 中未找到 id= 参数，extra_headers.x-server-id 需人工补充", vp.ID)
-		}
-		infof("迁移改写：%s → base_url=%s auth_style=cookie extra_headers={x-server-id, x-server-instance: server-fn:5}（原地址保留 query）", vp.BaseURL, fp.BaseURL)
+		// 改写为官方用量接口（260907）：base_url 指向 /zen/go/v1、paths=[/usage]、缺省 bearer。
+		// 旧 Cookie+/_server 逆向不再适用；且 v0.1 的 Cookie 登录态无法转换为 API Key，
+		// token 不迁移（skipToken），由用户按 WARN 提示在设置页重新录入。
+		fp.BaseURL = openUsageBase
+		fp.Paths = []string{"/usage"}
+		skipToken = true
+		warnf("迁移：provider %q 已改写为官方用量接口 %s/usage（Bearer 鉴权）。v0.1 的 Cookie 登录态无法转换为 API Key，token 未迁移——请到 opencode 控制台生成 API Key 后在设置页录入", vp.ID, openUsageBase)
+		infof("迁移改写：%s → base_url=%s paths=[/usage] auth_style=bearer(缺省)", vp.BaseURL, fp.BaseURL)
 	default:
 		if u, err := url.Parse(vp.BaseURL); err == nil && isLoopbackHost(u.Hostname()) {
 			// 指向本机代理但不匹配冻结转发表：不猜、不改写（设计 §5.5 兜底）
@@ -172,8 +160,8 @@ func migrateProvider(vp *v1Provider, seal SealFunc, infof, warnf func(string, ..
 		infof("迁移：provider %q 直连 %s，原样导入", vp.ID, vp.BaseURL)
 	}
 
-	// token 明文 → AES-GCM 密文（迁移完成明文即焚）
-	if vp.Token != "" {
+	// token 明文 → AES-GCM 密文（迁移完成明文即焚）；skipToken 分支不迁移
+	if vp.Token != "" && !skipToken {
 		cipher, err := seal(vp.Token)
 		if err != nil {
 			// 密封失败则整体失败（调用方退出），避免静默丢失 token

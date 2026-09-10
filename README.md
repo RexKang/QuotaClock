@@ -49,7 +49,7 @@ quotaclock.exe            # Windows（双击亦可）
 | 智谱 GLM | 登录 open.bigmodel.cn → F12 → Network → 点任意 `/api/biz/...` 请求 → 复制 `Authorization: Bearer ...` 的值 |
 | DeepSeek | platform.deepseek.com → API Keys |
 | Kimi Code | platform.kimi.com → API Keys（周期额度查询走 `/usages`，官方 CLI 同款接口） |
-| OpenCode | 登录 opencode.ai → F12 → Network → 复制 `/_server` 请求头里的 Cookie 值；鉴权方式选 cookie |
+| OpenCode | opencode.ai 控制台 → API Keys（鉴权方式用缺省 bearer；用量接口 `GET /zen/go/v1/usage`） |
 
 ## 从 v0.1 迁移
 
@@ -66,7 +66,7 @@ v0.1 是纯前端单文件页面（配置存 localStorage）。迁移走**旁路
 | v0.1 base_url | v0.2 base_url | 附带动作 |
 |---|---|---|
 | `http://127.0.0.1:8787/kimi` | `https://api.kimi.com/coding/v1` | 截余路径并入 paths[0] |
-| `http://127.0.0.1:8787/opencode` | `https://opencode.ai` | `auth_style=cookie`；从 path 的 `?id=` 提取 `x-server-id`，补 `x-server-instance: server-fn:5` |
+| `http://127.0.0.1:8787/opencode` | `https://opencode.ai/zen/go/v1` | paths 固定 `[/usage]`（官方用量接口）；v0.1 的 Cookie 登录态无法转换为 API Key，**token 未迁移**——到控制台生成 API Key 后在设置页录入 |
 | 直连地址（如 open.bigmodel.cn） | 原样导入 | `baseURL`→`base_url`，endpoints 仅取 GET |
 | 指向其他本机代理端口 | **跳过 + WARN** | 不猜不改写；请手动添加真实上游地址 |
 
@@ -176,7 +176,8 @@ quotaclock -admin-password 新密码
 
 **平台接口返回失败？**
 部分平台接口为逆向所得，路径可能随平台部署变化失效。处置 = 设置页更新该平台的
-「请求路径」，不改代码。OpenCode 重新部署后需从控制台 Network 重新复制 `/_server?id=…` 完整路径。
+「请求路径」，不改代码。OpenCode 已切换官方用量接口（`GET /zen/go/v1/usage`，Bearer API Key），
+一般无需跟进平台部署变化。
 
 **怎么看原始返回？**
 「详情」页可查看每个平台的状态、上次成功采集时间与原始 JSON。
