@@ -77,6 +77,8 @@
   .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
   .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
   .prov-card-head .badge.warn { background: rgba(251,191,36,.12); color: var(--warn); border-color: rgba(251,191,36,.3); }
+  /* 等待采集：中性灰（既不是成功也不是错误，避免「新加的 Key 一上来就是红的」） */
+  .prov-card-head .badge.wait { background: rgba(148,163,184,.14); color: var(--muted); border-color: rgba(148,163,184,.32); }
   .prov-card-head .go-detail { font-size: 20px; color: var(--muted); cursor: pointer; padding: 4px 12px; user-select: none; border-radius: 8px; margin-left: auto; }
   .prov-card-head .go-detail:hover { color: var(--accent); background: var(--card2); }
   .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
@@ -156,6 +158,7 @@
   .key-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
   .key-row { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px 10px; margin-bottom: 10px; background: var(--card2); }
   .key-row.off { opacity: .72; }
+  .key-row.invalid { border-color: rgba(248,113,113,.65); box-shadow: 0 0 0 1px rgba(248,113,113,.35); }
   .key-grid { display: grid; grid-template-columns: 1fr 1.6fr; gap: 12px; }
   .key-row .form-row { margin-bottom: 8px; }
   .key-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -227,12 +230,13 @@
   <pre id="rawData"></pre>
 </div>
 
-<!-- 设置弹窗（v0.2.4 双标签：平台管理 / 账户安全） -->
+<!-- 设置弹窗（v0.2.5 三标签：平台管理 / 采集与服务 / 账户安全） -->
 <div class="modal-mask" id="settingsModal">
   <div class="modal">
     <h2>设置</h2>
     <div class="settings-tabs">
       <button id="stabPlatform" class="active">平台管理</button>
+      <button id="stabService">采集与服务</button>
       <button id="stabAccount">账户安全</button>
     </div>
 
@@ -243,16 +247,14 @@
           <div id="provItems"></div>
           <div class="add-prov">
             <select id="addPlatformSel" title="选择内置平台"></select>
-            <button id="addProvBtn" class="ghost">+ 添加</button>
+            <button id="addProvBtn" class="ghost">添加</button>
           </div>
-          <div class="tip" style="margin-top:8px">只支持内置平台：各家的用量接口与解析规则是配套的，地址由程序内置，你只需填 API Key / Cookie。</div>
         </div>
         <div>
-          <div id="platEmpty" class="empty-plat">左侧选择一个平台进行管理；或用左下角「+ 添加」新增平台。</div>
+          <div id="platEmpty" class="empty-plat">左侧选择一个平台进行管理，或从下面选一个平台添加。</div>
           <div id="platBody" style="display:none">
             <div class="plat-head">
               <div class="plat-title"><span id="pPlatName"></span><span class="plat-id" id="pPlatID"></span></div>
-              <div class="tip" id="pPlatMeta"></div>
             </div>
             <div class="key-head">
               <span class="section-title" style="margin:0">API Key</span>
@@ -263,30 +265,31 @@
           </div>
         </div>
       </div>
-      <div style="border-top:1px solid var(--border); margin-top:16px; padding-top:14px">
-        <div class="section-title">采集与服务</div>
-        <div class="form-cols">
-          <div class="form-row">
-            <label>采集基准间隔（秒）</label>
-            <input type="number" id="sInterval" min="30">
-            <div class="tip">每个 API Key 的采集周期；同平台多个 Key 在该周期内等分错开</div>
-          </div>
-        </div>
-        <div class="form-cols">
-          <div class="form-row">
-            <label>监听 IP</label>
-            <input type="text" id="sHost">
-          </div>
-          <div class="form-row">
-            <label>端口</label>
-            <input type="number" id="sPort" min="1" max="65535">
-          </div>
-        </div>
-        <div class="tip" style="font-size:14px;color:var(--muted)">监听地址/端口修改保存后<b>需重启程序</b>才生效</div>
-      </div>
     </div>
 
-    <!-- 标签二：账户安全 -->
+    <!-- 标签二：采集与服务 -->
+    <div class="pane" id="paneService">
+      <div class="form-cols">
+        <div class="form-row">
+          <label>采集基准间隔（秒）</label>
+          <input type="number" id="sInterval" min="30">
+          <div class="tip">每个 API Key 的采集周期；同平台多个 Key 在该周期内等分错开</div>
+        </div>
+      </div>
+      <div class="form-cols">
+        <div class="form-row">
+          <label>监听 IP</label>
+          <input type="text" id="sHost">
+        </div>
+        <div class="form-row">
+          <label>端口</label>
+          <input type="number" id="sPort" min="1" max="65535">
+        </div>
+      </div>
+      <div class="tip" style="font-size:14px;color:var(--muted)">监听地址/端口修改保存后<b>需重启程序</b>才生效</div>
+    </div>
+
+    <!-- 标签三：账户安全 -->
     <div class="pane" id="paneAccount">
       <div class="form-row">
         <label>鉴权模式</label>
@@ -707,6 +710,28 @@ function fmtRetryIn(sec) {
   return sec + ' 秒';
 }
 
+/* ---------- 采集状态语义（v0.2.5 统一入口） ----------
+   后端用 status + error.code 区分，前端只在渲染层翻译成三种人话：
+     等待采集：从未采集过 —— 新加的 API Key、或服务端刚起还没跑完第一轮（NOT_COLLECTED_YET）
+     采集异常：平台限流等「等等就好」的情况（RATE_LIMITED），给倒计时
+     采集失败：5xx / 超时 / 网络 / 业务失败等需要看一眼的情况
+   其余：正常 / 缓存数据 / 已停用 / API Key 失效 */
+function statusMeta(prov) {
+  if (!prov || !prov.status) return { text: '等待采集', cls: 'wait' };
+  const code = (prov.error && prov.error.code) || '';
+  switch (prov.status) {
+    case 'ok': return { text: '正常', cls: 'ok' };
+    case 'cached': return { text: '缓存数据', cls: 'ok' };
+    case 'disabled': return { text: '已停用', cls: 'warn' };
+    case 'token_invalid': return { text: 'Key 失效', cls: 'err' };
+    case 'failed':
+      if (code === 'NOT_COLLECTED_YET') return { text: '等待采集', cls: 'wait' };
+      if (code === 'RATE_LIMITED') return { text: '采集异常', cls: 'warn' };
+      return { text: '采集失败', cls: 'err' };
+    default: return { text: '等待采集', cls: 'wait' };
+  }
+}
+
 function renderHomeGrid() {
   const grid = $('#homeGrid');
   grid.innerHTML = '';
@@ -722,28 +747,27 @@ function renderHomeGrid() {
   for (const prov of provs) {
     const card = document.createElement('div');
     card.className = 'prov-card';
-    const badge = prov.status === 'ok' ? `<span class="badge ok">正常</span>`
-      : prov.status === 'cached' ? `<span class="badge warn">缓存数据</span>`
-      : prov.status === 'token_invalid' ? `<span class="badge err">token 失效</span>`
-      : `<span class="badge err">采集失败</span>`;
+    const meta = statusMeta(prov);
+    const badge = `<span class="badge ${meta.cls}">${esc(meta.text)}</span>`;
 
-    // 错误分类文案（红字与失败文案严格区分；倒计时按 retry_after_s 前端计算）
+    // 错误分类文案（v0.2.5 三态语义见 statusMeta：等待采集 / 采集异常 / 采集失败）
     let errNote = '';
     if (prov.status === 'cached') {
       errNote = `<div class="pending-note">显示上次成功采集的数据${prov.last_success_at ? '（' + esc(fmtTime(prov.last_success_at)) + '）' : ''}，等待本轮采集刷新...</div>`;
     } else if (prov.status === 'token_invalid') {
-      errNote = `<div class="err-note">${esc((prov.error && prov.error.message) || 'token 失效，请在设置中更新')}</div>`;
+      errNote = `<div class="err-note">${esc((prov.error && prov.error.message) || 'API Key 失效，请在设置中更新')}</div>`;
     } else if (prov.status === 'failed') {
       const code = prov.error && prov.error.code;
       if (code === 'NOT_COLLECTED_YET') {
-        errNote = `<div class="pending-note">等待首次采集...</div>`;
+        errNote = `<div class="pending-note">等待采集（下一轮自动开始）...</div>`;
       } else {
         const ra = (prov.error && prov.error.retry_after_s) || 0;
+        const label = meta.text; // 「采集异常」/「采集失败」
         if (ra > 0) {
           retryAt[prov.id] = Date.now() + ra * 1000;
-          errNote = `<div class="err-note">采集失败，<span class="retry-in" data-pid="${esc(prov.id)}">${esc(fmtRetryIn(ra))}</span>后重试 · ${esc((prov.error && prov.error.message) || '')}</div>`;
+          errNote = `<div class="err-note">${esc(label)}，<span class="retry-in" data-pid="${esc(prov.id)}">${esc(fmtRetryIn(ra))}</span>后重试 · ${esc((prov.error && prov.error.message) || '')}</div>`;
         } else {
-          errNote = `<div class="err-note">采集失败 · ${esc((prov.error && prov.error.message) || '')}</div>`;
+          errNote = `<div class="err-note">${esc(label)} · ${esc((prov.error && prov.error.message) || '')}</div>`;
         }
       }
     }
@@ -950,10 +974,9 @@ function renderDetail() {
   const keyId = dot > 0 ? prov.id.slice(dot + 1) : '';
   const cv = ((cfgView && cfgView.providers) || []).find(p => p.platform === platId) || {};
   const ck = (cv.access_keys || []).find(k => k.id === keyId) || {};
-  const okCls = (prov.status === 'ok' || prov.status === 'cached') ? 'ok' : 'err';
-  const statusText = prov.status === 'ok' ? '正常'
-    : prov.status === 'cached' ? '缓存数据（待本轮刷新）'
-    : prov.status === 'token_invalid' ? 'token 失效' : '采集失败';
+  const meta = statusMeta(prov);
+  const okCls = meta.cls === 'ok' ? 'ok' : 'err';
+  const statusText = meta.text;
   kpiBox.innerHTML = `
     <div class="kpi"><div class="label">状态</div><div class="value ${okCls}">${esc(statusText)}</div></div>
     <div class="kpi"><div class="label">上次成功采集</div><div class="value">${esc(prov.last_success_at ? fmtTime(prov.last_success_at) : '--')}</div></div>
@@ -1019,6 +1042,11 @@ function renderFooter() {
 
 async function refreshCfgView() {
   cfgView = await api('/api/config');
+  // 标记「服务端已存在的凭据」：新增行的必填校验据此区分
+  // 「刚加的 Key」（必须填内容）与「已保存但内容为空的 Key」（迁移遗留，允许留空保存）。
+  (cfgView.providers || []).forEach(p => {
+    (p.access_keys || []).forEach(k => { k._saved = true; });
+  });
   renderBanners();
   renderHeaderAuth();
 }
@@ -1108,12 +1136,14 @@ async function pollNow(force) {
 /* ---------- 设置面板（v0.2.4 双标签：平台管理 / 账户安全） ---------- */
 let settingsTab = 'platform';
 
-// switchSettingsTab 切换设置面板标签：平台相关动作按钮只在「平台管理」出现。
+// switchSettingsTab 切换设置面板标签（v0.2.5：平台管理 / 采集与服务 / 账户安全）。
 function switchSettingsTab(t) {
   settingsTab = t;
   $('#stabPlatform').classList.toggle('active', t === 'platform');
+  $('#stabService').classList.toggle('active', t === 'service');
   $('#stabAccount').classList.toggle('active', t === 'account');
   $('#panePlatform').classList.toggle('active', t === 'platform');
+  $('#paneService').classList.toggle('active', t === 'service');
   $('#paneAccount').classList.toggle('active', t === 'account');
   if (t === 'account') renderAccountPane();
 }
@@ -1171,8 +1201,10 @@ function platformOf(id) { return (cfgView.providers || []).find(p => p.platform 
 function platName(p) { return p.platform_name || p.platform; }
 
 // renderAddPlatformSelect 添加平台下拉：只列「尚未配置」的内置平台（不允许自建）。
+// 全部添加完后：下拉显示「选择平台」并禁用，添加按钮置灰。
 function renderAddPlatformSelect() {
   const sel = $('#addPlatformSel');
+  const btn = $('#addProvBtn');
   const used = {};
   (cfgView.providers || []).forEach(p => { used[p.platform] = true; });
   const avail = (cfgView.platforms || []).filter(x => !used[x.id]);
@@ -1180,14 +1212,14 @@ function renderAddPlatformSelect() {
   if (!avail.length) {
     const o = document.createElement('option');
     o.value = '';
-    o.textContent = '所有平台都已添加';
+    o.textContent = '选择平台';
     sel.appendChild(o);
     sel.disabled = true;
-    $('#addProvBtn').disabled = true;
+    btn.disabled = true;
     return;
   }
   sel.disabled = false;
-  $('#addProvBtn').disabled = false;
+  btn.disabled = false;
   avail.forEach(x => {
     const o = document.createElement('option');
     o.value = x.id;
@@ -1248,8 +1280,6 @@ function renderPlatformPane() {
   body.style.display = '';
   $('#pPlatName').textContent = platName(p);
   $('#pPlatID').textContent = p.platform;
-  $('#pPlatMeta').innerHTML = '接口地址：<code>' + esc(p.base_url || '') + '</code>　请求路径：<code>' +
-    esc((p.paths || []).join(' , ')) + '</code>　（内置，无需填写）';
   const box = $('#keyRows');
   box.innerHTML = '';
   const keys = p.access_keys || [];
@@ -1260,25 +1290,28 @@ function renderPlatformPane() {
   keys.forEach((k, i) => box.appendChild(keyRowEl(p, k, i)));
 }
 
-// keyRowEl 单个 API Key 的编辑行：名称 + token（只写）+ 启用勾选 + 测试/删除。
+// keyRowEl 单个 API Key 的编辑行：名称 + Key（只写）+ 启用勾选 + 测试/删除。
+// v0.2.5：新增的 Key 必须填内容（未保存过的行标记 k-new，保存前校验）。
 function keyRowEl(p, k, idx) {
   const authed = !!(cfgView.auth && cfgView.auth.authenticated);
+  const isNew = !k.has_token && !k._saved;
   const row = document.createElement('div');
   row.className = 'key-row' + (k.enabled === false ? ' off' : '');
   row.dataset.keyId = k.id;
+  if (isNew) row.dataset.newKey = '1';
   let tip;
-  if (!k.has_token) tip = '未配置 token，直接填写即可';
+  if (isNew) tip = '尚未保存：填好 Key 可先点「测试」，通过后再保存';
   else if (authed && k.token_masked) tip = `已保存（${k.token_masked}），留空 = 保留原值`;
   else tip = '已保存，留空 = 保留原值';
   row.innerHTML = `
     <div class="key-grid">
       <div class="form-row">
-        <label>名称（仅用于区分，可留空）</label>
+        <label>名称（可留空）</label>
         <input type="text" class="k-name" value="${esc(k.name || '')}" placeholder="如 A1 / 备用">
       </div>
       <div class="form-row">
-        <label>API Key / Cookie（只写不回显）</label>
-        <input type="password" class="k-token" autocomplete="off" placeholder="留空 = 保留原值">
+        <label>API Key${isNew ? '（必填）' : ''}</label>
+        <input type="password" class="k-token" autocomplete="off" placeholder="${isNew ? '粘贴 API Key（必填）' : '留空 = 保留原值'}">
       </div>
     </div>
     <div class="key-foot">
@@ -1352,6 +1385,40 @@ function buildPutBody() {
   if (pw) body.auth.password = pw;
   return body;
 }
+
+// validateKeys 保存前校验：新增的（尚未保存过的）API Key 必须填内容。
+// 返回第一条问题（同时把输入框标红并聚焦），无问题返回 null。
+function validateKeys() {
+  const provs = cfgView.providers || [];
+  for (const p of provs) {
+    const k = (p.access_keys || []).find(x => !x._saved && !x._tokenInput);
+    if (!k) continue;
+    // 定位到该行并高亮（可能有多个新行，取第一个未填的）
+    if (p.platform === editingId) {
+      const row = $('#keyRows').querySelector(`.key-row[data-key-id="${k.id}"]`);
+      if (row) {
+        row.classList.add('invalid');
+        const inp = row.querySelector('.k-token');
+        if (inp) inp.focus();
+      }
+    } else {
+      // 不在当前平台：先把用户带到那一页，再高亮
+      flushKeys();
+      editingId = p.platform;
+      renderProvList();
+      renderPlatformPane();
+      const row = $('#keyRows').querySelector(`.key-row[data-key-id="${k.id}"]`);
+      if (row) {
+        row.classList.add('invalid');
+        const inp = row.querySelector('.k-token');
+        if (inp) inp.focus();
+      }
+    }
+    return `${platName(p)} 还有未填写的 API Key：请填写内容，或删除该行后再保存`;
+  }
+  return null;
+}
+
 function showSettingsError(e) {
   const box = $('#settingsError');
   let msg = e.message || '保存失败';
@@ -1365,6 +1432,12 @@ async function saveSettings() {
   const oldListen = { host: cfgView.listen.host, port: cfgView.listen.port };
   let body;
   try { body = buildPutBody(); } catch (e) { toast('表单读取失败'); return; }
+  const keyErr = validateKeys();
+  if (keyErr) {
+    toast(keyErr);
+    showSettingsError({ message: keyErr });
+    return;
+  }
   try {
     await api('/api/config', { method: 'PUT', body: JSON.stringify(body) });
     $('#settingsError').classList.remove('open');
@@ -1385,6 +1458,9 @@ async function saveSettings() {
     }
   }
 }
+// testKey 测单个 API Key 的连通性。**未保存的新 Key 也能测**（v0.2.5）：
+// 带上 platform + token，服务端用平台预设的地址与本次携带的凭据发起请求——
+// 用户的工作流是先测通再保存，不能要求它先落盘。
 async function testKey(platform, keyId, row) {
   flushKeys();
   const p = platformOf(platform);
@@ -1392,15 +1468,23 @@ async function testKey(platform, keyId, row) {
   if (!k) { toast('请先选择 API Key'); return; }
   const body = { provider_id: platform + '.' + keyId };
   if (k._tokenInput) body.token = k._tokenInput;
+  if (!k._saved && !body.token) {
+    row.classList.add('invalid');
+    const inp = row.querySelector('.k-token');
+    if (inp) inp.focus();
+    toast('请先填写 API Key 再测试');
+    return;
+  }
+  if (!k._saved) body.platform = platform; // 未保存：按平台测，不要求已在配置里
   const btn = row.querySelector('.k-test');
   btn.disabled = true;
   btn.textContent = '测试中...';
   try {
     const r = await api('/api/test', { method: 'POST', body: JSON.stringify(body) });
+    row.classList.remove('invalid');
     toast(`连接正常（${r.latency_ms}ms）`);
   } catch (e) {
     if (e.status === 401) openLogin('测试连接需要管理员登录');
-    else if (e.status === 400) toast('这个 Key 还没保存：先点「保存」再测试');
     else toast('测试失败：' + (e.message || '未知错误'));
   } finally {
     btn.disabled = false;
@@ -1466,6 +1550,7 @@ document.addEventListener('visibilitychange', () => {
 });
 $('#settingsBtn').onclick = openSettings;
 $('#stabPlatform').onclick = () => switchSettingsTab('platform');
+$('#stabService').onclick = () => switchSettingsTab('service');
 $('#stabAccount').onclick = () => switchSettingsTab('account');
 $('#acctAuthBtn').onclick = () => {
   if (cfgView && cfgView.auth && cfgView.auth.authenticated) doLogout();

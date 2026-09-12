@@ -36,8 +36,9 @@ func BuildURL(base, path string) string {
 }
 
 // FetchOnce 对 provider 的单个 path 发起 GET 并分类。
-// auth_style：bearer → Authorization: Bearer <token>；cookie → Cookie: <token> 且 Accept: */*
-// （复刻 v0.1；服务端直连后无浏览器 forbidden-header 限制，X-Cookie 中转整体删除）。
+// 鉴权：当前四个内置平台统一 Bearer（Authorization: Bearer <token>）。
+// （历史上的 auth_style=cookie 分支已随「没有 cookie 平台」移除；若将来某平台需要
+// 非 Bearer 方式，在此扩展并同步 platform.go 的预设声明。）
 // extra_headers 最后合并、可覆盖默认头（S2）。
 func (c *Client) FetchOnce(ctx context.Context, p *config.RuntimeProvider, path string) Classified {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, BuildURL(p.BaseURL, path), nil)
@@ -45,16 +46,9 @@ func (c *Client) FetchOnce(ctx context.Context, p *config.RuntimeProvider, path 
 		return ClassifyTransport(err)
 	}
 	req.Header.Set("User-Agent", "QuotaClock/"+c.Version)
-	if p.AuthStyle == config.AuthStyleCookie {
-		req.Header.Set("Accept", "*/*")
-		if p.Token != "" {
-			req.Header.Set("Cookie", p.Token)
-		}
-	} else {
-		req.Header.Set("Accept", "application/json")
-		if p.Token != "" {
-			req.Header.Set("Authorization", "Bearer "+p.Token)
-		}
+	req.Header.Set("Accept", "application/json")
+	if p.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+p.Token)
 	}
 	for k, v := range p.ExtraHeaders {
 		req.Header.Set(k, v)

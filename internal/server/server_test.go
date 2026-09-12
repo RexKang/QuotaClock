@@ -665,7 +665,7 @@ func TestIntegrationHotReload(t *testing.T) { // I-2
 	ck := env.login(config.DefaultPassword)
 	rev0 := env.store.Get().Revision
 	// PUT 增加一个平台
-	body := putOneKey(env, "opencode", "a", "A", "")
+	body := putOneKey(env, "opencode", "a", "A", "sk-hotreload")
 	if code, _, _ := env.doJSON("PUT", "/api/config", body, authHdr(ck)); code != 200 {
 		t.Fatal("PUT 失败")
 	}

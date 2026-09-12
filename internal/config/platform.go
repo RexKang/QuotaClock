@@ -90,6 +90,25 @@ func IsKnownPlatform(id string) bool {
 	return ok
 }
 
+// PlatformIDs 返回全部平台标识（错误提示与校验文案用）。
+func PlatformIDs() []string {
+	out := make([]string, 0, len(platforms))
+	for _, p := range platforms {
+		out = append(out, p.ID)
+	}
+	return out
+}
+
+// PlatformBaseURL 返回平台预设的接口地址（含本地测试用上游覆盖）——
+// 运行时构建与 /api/test 探针共用，保证「探针打哪、采集就打哪」。
+func PlatformBaseURL(id string) string {
+	p, ok := PlatformByID(id)
+	if !ok {
+		return ""
+	}
+	return applyUpstreamOverride(p.BaseURL)
+}
+
 // platformSignatures 迁移期的 base_url → 平台推断表（子串匹配，按特异性从高到低）。
 var platformSignatures = []struct {
 	contains string

@@ -15,14 +15,14 @@ import (
 	"github.com/RexKang/QuotaClock/internal/config"
 )
 
-// putKey 一次性 PUT 单平台单凭据配置（enabled 显式给值）。
+// putKey 一次性 PUT 单平台单凭据配置（enabled 显式给值；新增凭据必须带 token，v0.2.5）。
 func putKey(t *testing.T, env *testEnv, ck string, enabled bool) {
 	t.Helper()
 	body := validPutBody(env)
 	body["providers"] = []any{map[string]any{
 		"platform": "opencode",
 		"access_keys": []any{map[string]any{
-			"id": "a", "name": "A1", "enabled": enabled,
+			"id": "a", "name": "A1", "enabled": enabled, "token": "sk-enabled-roundtrip",
 		}},
 	}}
 	if code, m, _ := env.doJSON("PUT", "/api/config", body, authHdr(ck)); code != 200 {

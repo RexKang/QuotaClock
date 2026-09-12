@@ -272,7 +272,6 @@ func registerSecrets(r *config.Runtime) {
 		if p.Token != "" {
 			logx.RegisterSecret(p.Token)
 			logx.RegisterSecret("Bearer " + p.Token)
-			logx.RegisterSecret("Cookie " + p.Token)
 		}
 		if p.TokenCipher != "" {
 			logx.RegisterSecret(p.TokenCipher)

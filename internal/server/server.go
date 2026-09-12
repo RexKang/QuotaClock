@@ -406,6 +406,13 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	old := s.file.Load()
+	if details := config.ValidateNewKeys(put, old); len(details) > 0 {
+		writeJSON(w, http.StatusBadRequest, validationBody{
+			Error:   errInner{Code: "VALIDATION_ERROR", Message: "配置校验失败"},
+			Details: details,
+		})
+		return
+	}
 	newFile, masks, merr := s.mergeForSave(old, put)
 	if merr != nil {
 		writeErr(w, http.StatusInternalServerError, "SAVE_FAILED", merr.Error())
@@ -516,6 +523,11 @@ func (s *Server) applyOverrides(l *config.Listen, c *config.Collector) {
 }
 
 // handleTest POST /api/test：以 paths[0] 测连通性；临时 token 仅本次请求内存使用，不落盘不进日志。
+//
+// 支持两种入参（v0.2.5）：
+//   - provider_id = "<platform>.<keyID>"：已保存的凭据（token 缺省用配置里的）
+//   - platform = "<platform>" + token：**尚未保存**的新凭据——用户的工作流是先测通再保存，
+//     所以不能要求它先落盘（preset 提供地址与路径，token 用请求里的）
 func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 	body, err := readBody(r)
 	if err != nil {
@@ -524,6 +536,7 @@ func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		ProviderID string `json:"provider_id"`
+		Platform   string `json:"platform"`
 		Token      string `json:"token"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -531,23 +544,52 @@ func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := s.cfg.Load()
-	p := cfg.Provider(req.ProviderID)
-	if p == nil {
-		writeErr(w, http.StatusBadRequest, "PROVIDER_NOT_FOUND", "未找到该平台凭据："+req.ProviderID)
-		return
+
+	var probe config.RuntimeProvider
+	found := false
+	if p := cfg.Provider(req.ProviderID); p != nil {
+		probe = *p // 值拷贝：临时 token 仅本次请求内存使用
+		found = true
 	}
-	if len(p.Paths) == 0 {
+	// 未保存的新凭据：平台标识可用「platform 字段」或 provider_id 的前缀给出
+	platform := req.Platform
+	if platform == "" && req.ProviderID != "" {
+		if i := strings.Index(req.ProviderID, "."); i > 0 {
+			platform = req.ProviderID[:i]
+		} else {
+			platform = req.ProviderID
+		}
+	}
+	if !found {
+		preset, ok := config.PlatformByID(platform)
+		if !ok {
+			writeErr(w, http.StatusBadRequest, "PROVIDER_NOT_FOUND",
+				"未找到该平台凭据："+req.ProviderID+"（可用平台："+strings.Join(config.PlatformIDs(), " / ")+"）")
+			return
+		}
+		probe = config.RuntimeProvider{
+			ID:       platform + "." + strings.TrimPrefix(strings.TrimPrefix(req.ProviderID, platform), "."),
+			Platform: platform,
+			Name:     preset.Name,
+			BaseURL:  config.PlatformBaseURL(platform), // 与采集器同源（含测试用上游覆盖）
+			Paths:    preset.Paths,
+		}
+	}
+	if len(probe.Paths) == 0 {
 		writeErr(w, http.StatusBadRequest, "INVALID_REQUEST", "该平台没有可用 path")
 		return
 	}
-	probe := *p // 值拷贝：临时 token 仅本次请求内存使用
 	if req.Token != "" {
 		probe.Token = req.Token
 		probe.DecryptFailed = false
 		logx.RegisterSecret(req.Token) // 脱敏红线兜底
 	}
 	if probe.Token == "" {
-		writeErr(w, http.StatusBadRequest, "INVALID_REQUEST", "无可用 token（该平台未配置，请求也未携带临时 token）")
+		if probe.DecryptFailed {
+			writeErr(w, http.StatusBadRequest, "INVALID_REQUEST", "已保存的 token 无法解密，请重新录入后再测试")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, "INVALID_REQUEST", "请先填写 API Key 再测试")
 		return
 	}
 

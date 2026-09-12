@@ -144,7 +144,7 @@ func TestOutboundHeaders(t *testing.T) { // C-col-06
 	}))
 	defer srv.Close()
 
-	// bearer
+	// bearer（唯一鉴权方式，v0.2.5 起 cookie 分支已移除）
 	c := &Client{HTTP: srv.Client(), Version: "9.9.9"}
 	p := &config.RuntimeProvider{ID: "p", BaseURL: srv.URL, Paths: []string{"/a"}, AuthStyle: config.AuthStyleBearer, Token: "sk-tok"}
 	c.FetchOnce(context.Background(), p, "/a")
@@ -152,11 +152,11 @@ func TestOutboundHeaders(t *testing.T) { // C-col-06
 		t.Fatalf("bearer 头错误: auth=%q cookie=%q accept=%q ua=%q", gotAuth, gotCookie, gotAccept, gotUA)
 	}
 
-	// S1 cookie：Cookie 头 + 无 Authorization + Accept: */*
-	p2 := &config.RuntimeProvider{ID: "p", BaseURL: srv.URL, Paths: []string{"/a"}, AuthStyle: config.AuthStyleCookie, Token: "auth=X; oc_locale=zh"}
-	c.FetchOnce(context.Background(), p2, "/a")
-	if gotCookie != "auth=X; oc_locale=zh" || gotAuth != "" || gotAccept != "*/*" {
-		t.Fatalf("cookie 头错误: cookie=%q auth=%q accept=%q", gotCookie, gotAuth, gotAccept)
+	// 无 token（未配置凭据）：不发 Authorization，也不发 Cookie（凭据缺失由分类器判 401）
+	pNoTok := &config.RuntimeProvider{ID: "p", BaseURL: srv.URL, Paths: []string{"/a"}, AuthStyle: config.AuthStyleBearer}
+	c.FetchOnce(context.Background(), pNoTok, "/a")
+	if gotAuth != "" || gotCookie != "" || gotAccept != "application/json" {
+		t.Fatalf("无 token 时头错误: auth=%q cookie=%q accept=%q", gotAuth, gotCookie, gotAccept)
 	}
 
 	// S2 extra_headers 生效且可覆盖默认

@@ -20,10 +20,9 @@ const (
 )
 
 // AuthStyle 常量（S1 增量）。
-const (
-	AuthStyleBearer = "bearer"
-	AuthStyleCookie = "cookie"
-)
+// v0.2.5：四个内置平台的鉴权方式统一为 Bearer（Authorization 头）——历史上支持过的
+// cookie 方式随「没有 cookie 平台」一并移除（客户端只实现 Bearer，见 collector/client.go）。
+const AuthStyleBearer = "bearer"
 
 // Listen 监听配置。
 type Listen struct {
