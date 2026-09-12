@@ -32,10 +32,24 @@ checksum:
   name_template: "checksums.txt"
 
 # Release 正文（含「本版重点」与提交明细）由 scripts/release_notes.py 生成后经
-# `--release-notes release-notes.md` 传入（见 .github/workflows/ci.yml）。
-# 因此这里关掉 goreleaser 自带的 changelog（它的输出是「40 位 SHA + 提交标题」的流水账，
-# 而且 header 是固定模板 —— 用户反馈「每个 Release 内容看起来都一样」）。
+# `--release-notes` 传入（见 .github/workflows/ci.yml）。
+#
+# 注意 **不能** 写 `changelog: disable: true`：goreleaser 把 `--release-notes` 的加载
+# 放在 changelog pipe 的 Run 里，而 disable 会让该 pipe 整个被 Skip —— 结果是正文为空
+# 且不报错（2026-09-12 v0.2.5 首发实测：Release 建出来但 body 只有 1 个换行）。
+# 给了 --release-notes 时该 pipe 会在加载完正文后立即返回，不会生成 git changelog。
+changelog:
+  use: git          # 缺省值；只为让 changelog pipe 运行（未被 --release-notes 覆盖时的兜底）
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+
 release:
   draft: false
-changelog:
-  disable: true
+  # 重跑同一个 tag 时用新生成的正文覆盖已发布正文。
+  # 默认是 keep-existing：正文非空就原样保留 —— v0.2.5 首发因 changelog pipe 被跳过而发出
+  # 了空正文，重跑时若不改成 replace，goreleaser 会把那段空正文一直保留下去。
+  mode: replace

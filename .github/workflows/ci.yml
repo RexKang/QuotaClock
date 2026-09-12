@@ -74,3 +74,17 @@ jobs:
           args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 兜底校验：goreleaser 的 changelog pipe 一旦被跳过（例如误设 changelog.disable: true），
+      # 它会静默地建出「正文为空」的 Release 并返回成功 —— v0.2.5 首发就是这么翻车的。
+      # 这里直接读回已发布正文，太短就让 job 失败，避免又发一条空说明。
+      - name: 校验 Release 正文非空
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          body="$(gh release view "$GITHUB_REF_NAME" --json body -q .body)"
+          echo "Release 正文长度: ${#body}"
+          if [ "${#body}" -lt 200 ]; then
+            echo "::error::Release 正文为空或过短（${#body} 字符），请检查 scripts/release_notes.py 与 goreleaser 的 --release-notes"
+            exit 1
+          fi
