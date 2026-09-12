@@ -4,7 +4,7 @@
 
 GitHub Release 的正文由 `scripts/release_notes.py` 从本文件 + git 提交自动拼装（详见 README「发布流程」）。
 
-## [v0.2.5] - 未发布
+## [v0.2.5] - 2026-09-12
 
 ### 新增
 
