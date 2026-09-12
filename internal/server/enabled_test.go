@@ -15,20 +15,22 @@ import (
 	"github.com/RexKang/QuotaClock/internal/config"
 )
 
-// putProvider 一次性 PUT 单平台配置（enabled 显式给值）。
-func putProvider(t *testing.T, env *testEnv, ck string, enabled bool) {
+// putKey 一次性 PUT 单平台单凭据配置（enabled 显式给值）。
+func putKey(t *testing.T, env *testEnv, ck string, enabled bool) {
 	t.Helper()
 	body := validPutBody(env)
 	body["providers"] = []any{map[string]any{
-		"id": "a", "name": "A", "base_url": "https://x.com", "paths": []string{"/"},
-		"enabled": enabled,
+		"platform": "opencode",
+		"access_keys": []any{map[string]any{
+			"id": "a", "name": "A1", "enabled": enabled,
+		}},
 	}}
 	if code, m, _ := env.doJSON("PUT", "/api/config", body, authHdr(ck)); code != 200 {
 		t.Fatalf("PUT = %d %v", code, m)
 	}
 }
 
-// snapshotProvider 取 /api/quotas 里 id=a 的快照项。
+// snapshotProvider 取 /api/quotas 里唯一一条快照项。
 func snapshotProvider(t *testing.T, env *testEnv) map[string]any {
 	t.Helper()
 	code, q, _ := env.doJSON("GET", "/api/quotas", nil, nil)
@@ -37,39 +39,44 @@ func snapshotProvider(t *testing.T, env *testEnv) map[string]any {
 	}
 	provs, _ := q["providers"].([]any)
 	if len(provs) != 1 {
-		t.Fatalf("快照平台数 = %d", len(provs))
+		t.Fatalf("快照凭据数 = %d", len(provs))
 	}
 	p, _ := provs[0].(map[string]any)
 	return p
 }
 
-// TestPutEnabledRoundTrip（v0.2.4）：PUT enabled=false → 落盘 / 视图 / 快照三处一致「已停用」；
+// TestPutEnabledRoundTrip（v0.2.4/v0.2.5）：PUT enabled=false → 落盘 / 视图 / 快照三处一致「已停用」；
 // 重新勾选后回到未采集态。
 func TestPutEnabledRoundTrip(t *testing.T) {
 	env := newEnv(t, nil)
 	ck := env.login(config.DefaultPassword)
 
-	// ① 新增平台（默认启用）
-	putProvider(t, env, ck, true)
+	// ① 新增凭据（默认启用）
+	putKey(t, env, ck, true)
 	_, m, _ := env.doJSON("GET", "/api/config", nil, authHdr(ck))
 	provs, _ := m["providers"].([]any)
 	if len(provs) != 1 {
 		t.Fatalf("视图平台数 = %d", len(provs))
 	}
 	p0, _ := provs[0].(map[string]any)
-	if p0["enabled"] != true {
-		t.Fatalf("新增平台应默认启用: %v", p0)
+	keys0, _ := p0["access_keys"].([]any)
+	if len(keys0) != 1 {
+		t.Fatalf("视图凭据数 = %d", len(keys0))
+	}
+	k0, _ := keys0[0].(map[string]any)
+	if k0["enabled"] != true {
+		t.Fatalf("新增凭据应默认启用: %v", k0)
 	}
 	st0 := snapshotProvider(t, env)
 	if st0["status"] != "failed" {
 		t.Fatalf("启用且未采集 → failed: %v", st0)
 	}
 	if errObj, ok := st0["error"].(map[string]any); !ok || errObj["code"] != "NOT_COLLECTED_YET" {
-		t.Fatalf("启用平台错误码应为 NOT_COLLECTED_YET: %v", st0["error"])
+		t.Fatalf("启用凭据错误码应为 NOT_COLLECTED_YET: %v", st0["error"])
 	}
 
 	// ② 取消勾选 → 停用（落盘 / 视图 / 快照三处一致）
-	putProvider(t, env, ck, false)
+	putKey(t, env, ck, false)
 	raw, err := os.ReadFile(env.configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +85,7 @@ func TestPutEnabledRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if disk.Providers[0].IsEnabled() {
+	if disk.Providers[0].AccessKeys[0].IsEnabled() {
 		t.Fatalf("停用应落盘 enabled=false: %s", raw)
 	}
 	if !strings.Contains(string(raw), `"enabled": false`) {
@@ -87,25 +94,27 @@ func TestPutEnabledRoundTrip(t *testing.T) {
 	_, m2, _ := env.doJSON("GET", "/api/config", nil, authHdr(ck))
 	provs2, _ := m2["providers"].([]any)
 	p1, _ := provs2[0].(map[string]any)
-	if p1["enabled"] != false {
-		t.Fatalf("视图应回传 enabled=false: %v", p1)
+	keys1, _ := p1["access_keys"].([]any)
+	k1, _ := keys1[0].(map[string]any)
+	if k1["enabled"] != false {
+		t.Fatalf("视图应回传 enabled=false: %v", k1)
 	}
 	st := snapshotProvider(t, env)
 	if st["status"] != "disabled" {
-		t.Fatalf("停用平台快照状态应为 disabled: %v", st)
+		t.Fatalf("停用凭据快照状态应为 disabled: %v", st)
 	}
 	if errObj, ok := st["error"].(map[string]any); !ok || errObj["code"] != "DISABLED" {
-		t.Fatalf("停用平台错误码应为 DISABLED: %v", st["error"])
+		t.Fatalf("停用凭据错误码应为 DISABLED: %v", st["error"])
 	}
 
 	// ③ 重新勾选 → 立刻回到未采集态（可采集）
-	putProvider(t, env, ck, true)
+	putKey(t, env, ck, true)
 	raw2, _ := os.ReadFile(env.configPath)
 	disk2, err := config.ParseFile(raw2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !disk2.Providers[0].IsEnabled() {
+	if !disk2.Providers[0].AccessKeys[0].IsEnabled() {
 		t.Fatalf("重新启用应落盘为启用态: %s", raw2)
 	}
 	if strings.Contains(string(raw2), `"enabled": false`) {
@@ -117,7 +126,7 @@ func TestPutEnabledRoundTrip(t *testing.T) {
 	}
 }
 
-// TestDisabledProviderNeverCollected（v0.2.4 集成）：停用平台在真实调度循环里一次请求都不发，
+// TestDisabledProviderNeverCollected（v0.2.4 集成）：停用凭据在真实调度循环里一次请求都不发，
 // 快照状态恒为 disabled；上游 mock 计数为 0。
 func TestDisabledProviderNeverCollected(t *testing.T) {
 	var hits int32
@@ -129,15 +138,10 @@ func TestDisabledProviderNeverCollected(t *testing.T) {
 
 	env := newEnv(t, nil)
 	ck := env.login(config.DefaultPassword)
+	setUpstream(t, env, up.URL) // 平台地址由预设派生，测试通过环境开关指向 mock
 
-	// 直连 mock 的停用平台（绕过 https://x.com 占位）
-	body := validPutBody(env)
-	body["providers"] = []any{map[string]any{
-		"id": "a", "name": "A", "base_url": up.URL, "paths": []string{"/q"}, "enabled": false,
-	}}
-	if code, _, _ := env.doJSON("PUT", "/api/config", body, authHdr(ck)); code != 200 {
-		t.Fatal("PUT 失败")
-	}
+	// 停用凭据
+	putKey(t, env, ck, false)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -165,13 +169,7 @@ func TestDisabledProviderNeverCollected(t *testing.T) {
 	}
 
 	// 重新启用后应立刻开始采集（同一 mock）
-	body2 := validPutBody(env)
-	body2["providers"] = []any{map[string]any{
-		"id": "a", "name": "A", "base_url": up.URL, "paths": []string{"/q"}, "enabled": true,
-	}}
-	if code, _, _ := env.doJSON("PUT", "/api/config", body2, authHdr(ck)); code != 200 {
-		t.Fatal("重新启用 PUT 失败")
-	}
+	putKey(t, env, ck, true)
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
 	go env.sched.Run(ctx2)

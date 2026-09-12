@@ -72,9 +72,11 @@ type snapshotWire struct {
 	Providers   []providerWire `json:"providers"`
 }
 
-// FormatTime 时间戳序列化：RFC3339、UTC、秒级（Z 结尾无小数）。
+// FormatTime 时间戳序列化：RFC3339、秒级、**按服务端当地时区输出**（v0.2.5）。
+// 历史上强制 UTC（Z 结尾），页面上「上次成功采集」比本地时间少 8 小时，用户反馈要改成本地时间。
+// time.Time 自带 Location，去掉 .UTC() 后输出形如 2026-09-12T18:20:00+08:00。
 func FormatTime(t time.Time) string {
-	return t.Truncate(time.Second).UTC().Format(time.RFC3339)
+	return t.Truncate(time.Second).Format(time.RFC3339)
 }
 
 // MarshalJSON 实现 /api/quotas 响应形态。
@@ -139,7 +141,7 @@ func (s *Store) Publish(now time.Time, states []ProviderState) bool {
 	}
 	s.ptr.Store(&Snapshot{
 		Revision:    rev,
-		CollectedAt: now.UTC(),
+		CollectedAt: now, // 保留当地时区（v0.2.5：页面按本地时间展示）
 		Version:     s.version,
 		Providers:   provs,
 	})

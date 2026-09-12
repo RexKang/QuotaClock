@@ -19,10 +19,12 @@ type Scheduler struct {
 	store  *Store
 	client *Client
 
-	mu       sync.Mutex
-	defs     map[string]*config.RuntimeProvider
-	states   map[string]*ProviderState
-	backoffs map[string]*Backoff
+	mu               sync.Mutex
+	defs             map[string]*config.RuntimeProvider
+	states           map[string]*ProviderState
+	backoffs         map[string]*Backoff // key 级退避（runtime id = <platform>.<keyID>）
+	platformBackoffs map[string]*Backoff // 平台级退避（platform）：5xx/网络属平台异常，暂停该平台全部 key
+	inflight         map[string]int      // 平台 → 在途采集数：同平台请求串行化（防同平台 key 并发互撞）
 
 	cache CacheWriter // 上次成功数据落盘出口（nil = 不启用缓存，v0.2.4）
 
@@ -38,14 +40,16 @@ type Scheduler struct {
 // NewScheduler 初始化并发布首个快照（全部 provider = 尚未采集态；revision 0 → 1）。
 func NewScheduler(cfg *config.Runtime, store *Store, client *Client) *Scheduler {
 	s := &Scheduler{
-		store:    store,
-		client:   client,
-		defs:     map[string]*config.RuntimeProvider{},
-		states:   map[string]*ProviderState{},
-		backoffs: map[string]*Backoff{},
-		wake:     make(chan struct{}, 1),
-		clock:    time.Now,
-		randFn:   defaultRand,
+		store:            store,
+		client:           client,
+		defs:             map[string]*config.RuntimeProvider{},
+		states:           map[string]*ProviderState{},
+		backoffs:         map[string]*Backoff{},
+		platformBackoffs: map[string]*Backoff{},
+		inflight:         map[string]int{},
+		wake:             make(chan struct{}, 1),
+		clock:            time.Now,
+		randFn:           defaultRand,
 	}
 	s.cfg.Store(cfg)
 	s.mu.Lock()
@@ -113,6 +117,7 @@ func (s *Scheduler) Reload(cfg *config.Runtime) {
 }
 
 func (s *Scheduler) reloadLocked(cfg *config.Runtime) {
+	s.ensureMapsLocked()
 	newDefs := make(map[string]*config.RuntimeProvider, len(cfg.Providers))
 	for _, p := range cfg.Providers {
 		newDefs[p.ID] = p
@@ -121,14 +126,15 @@ func (s *Scheduler) reloadLocked(cfg *config.Runtime) {
 			continue // 未变：保留退避与历史
 		}
 		st := &ProviderState{ID: p.ID, Name: p.Name}
-		if p.DecryptFailed {
+		if !p.IsEnabled() {
+			// v0.2.4：停用的凭据灰显，错误码 DISABLED（前端识别渲染「已停用」徽标）。
+			// 判定先于解密失败：停用是用户意图，此时 token 能否解密与展示无关
+			st.Status = StatusDisabled
+			st.Error = &ErrorInfo{Code: CodeDisabled, Message: "凭据已停用"}
+		} else if p.DecryptFailed {
 			// key.bin 丢失/不匹配的降级（设计 §6.4）：token_invalid，不 crash
 			st.Status = StatusTokenInvalid
 			st.Error = &ErrorInfo{Code: CodeTokenDecryptFail, Message: "token 无法解密，请在设置中重新录入"}
-		} else if !p.IsEnabled() {
-			// v0.2.4：停用平台灰显，错误码 DISABLED（前端识别渲染「已停用」徽标）
-			st.Status = StatusDisabled
-			st.Error = &ErrorInfo{Code: CodeDisabled, Message: "平台已停用"}
 		} else {
 			st.Status = StatusFailed
 			st.Error = &ErrorInfo{Code: CodeNotCollectedYet, Message: "尚未完成首次采集"}
@@ -137,6 +143,19 @@ func (s *Scheduler) reloadLocked(cfg *config.Runtime) {
 		s.backoffs[p.ID] = &Backoff{}
 	}
 	s.defs = newDefs
+	// 平台级退避：保留仍在用的平台（配置保存不该丢掉平台退避），清掉已消失的平台
+	livePlatforms := map[string]bool{}
+	for _, p := range cfg.Providers {
+		livePlatforms[p.Platform] = true
+		if s.platformBackoffs[p.Platform] == nil {
+			s.platformBackoffs[p.Platform] = &Backoff{}
+		}
+	}
+	for plat := range s.platformBackoffs {
+		if !livePlatforms[plat] {
+			delete(s.platformBackoffs, plat)
+		}
+	}
 	for id := range s.states {
 		if _, ok := newDefs[id]; !ok {
 			delete(s.states, id)
@@ -236,6 +255,16 @@ func (s *Scheduler) runTick(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
+			// 同平台串行化：同平台已有在途采集（上一次尚未回）→ 本次避让，
+			// 避免同平台的多个 key 并发互撞（用户实测的冲突来源之一）。
+			// Platform 为空（未经 BuildRuntime 的构造路径）不做分组约束。
+			if j.p.Platform != "" && !s.beginInflight(j.p.Platform) {
+				logx.Warnf("跳过 %s：同平台 %s 仍有在途采集，本轮避让", j.p.ID, j.p.Platform)
+				return
+			}
+			if j.p.Platform != "" {
+				defer s.endInflight(j.p.Platform)
+			}
 			s.collectProvider(ctx, j.p)
 		}(j)
 	}
@@ -247,29 +276,111 @@ type job struct {
 	delay time.Duration
 }
 
-// planTickLocked 计算「应采集」集合：跳过停用/解密失败态 且 退避未到期；
-// 第 k 个平台的启动延迟 = 前 k-1 项 rand(stagger) 之和（首个平台立即启动，C-col-05）。
+// planTickLocked 计算本 tick 的采集任务（v0.2.5 双层调度）：
+//   - 平台级：平台退避（5xx/网络，基数 interval_base_s）未到期 → 该平台**全部 key** 跳过（不给异常平台添压）
+//   - key 级：停用 / 解密失败 / 自身退避（429 等，基数 = 等分周期）未到期 → 该 key 跳过
+//   - 同平台多 key：启动偏移 = KeyIndex × (interval_base_s / KeyCount)，把一个周期等分成 N 段
+//   - 跨平台：在等分偏移之上再叠加累计 rand(stagger)（首个立即启动，C-col-05）
 func (s *Scheduler) planTickLocked(cfg *config.Runtime) []job {
 	now := s.clock()
 	var jobs []job
 	acc := time.Duration(0)
+	notified := map[string]bool{}
 	for _, p := range cfg.Providers {
 		if p.DecryptFailed {
 			continue // token 无法解密：停采态
 		}
 		if !p.IsEnabled() {
-			continue // v0.2.4：平台停用（enabled=false）不参与采集
+			continue // 凭据停用（enabled=false）不参与采集
+		}
+		if pb := s.platformBackoffs[p.Platform]; pb != nil && !pb.Eligible(now) {
+			if !notified[p.Platform] {
+				notified[p.Platform] = true
+				logx.Debugf("跳过平台 %s 的全部 key（平台级退避未到）", p.Platform)
+			}
+			continue
 		}
 		b := s.backoffs[p.ID]
 		if b == nil || !b.Eligible(now) {
 			logx.Debugf("跳过 %s（停采或退避未到）", p.ID)
 			continue
 		}
-		start := acc
+		start := acc + s.keyOffset(cfg, p)
 		acc += time.Duration(s.randStagger(cfg)) * time.Second
 		jobs = append(jobs, job{p, start})
 	}
 	return jobs
+}
+
+// keyOffset 同平台多 key 的等分偏移：KeyIndex × (interval_base_s / KeyCount)。
+// 语义：IntervalBaseS 是每个 key 的采集周期，同平台 N 个 key 在该周期内等分错开，
+// 使同平台的请求彼此拉开（用户实测：同平台不同 key 一起打会互相冲突）。
+func (s *Scheduler) keyOffset(cfg *config.Runtime, p *config.RuntimeProvider) time.Duration {
+	if p.KeyCount <= 1 || p.KeyIndex <= 0 {
+		return 0
+	}
+	period := time.Duration(cfg.Collector.IntervalBaseS) * time.Second / time.Duration(p.KeyCount)
+	return time.Duration(p.KeyIndex) * period
+}
+
+// keyPeriodS 单 key 的等分周期（秒）：interval_base_s / keyCount，至少 1s。
+// 用作 key 级退避基数（429 属单 key 限流：平台正常，该 key 紧凑退避即可）。
+func (s *Scheduler) keyPeriodS(cfg *config.Runtime, p *config.RuntimeProvider) int {
+	if p.KeyCount <= 1 {
+		return cfg.Collector.IntervalBaseS
+	}
+	period := cfg.Collector.IntervalBaseS / p.KeyCount
+	if period < 1 {
+		period = 1
+	}
+	return period
+}
+
+// isPlatformLevel 该错误分类是否属「平台异常」（暂停该平台全部 key）。
+// 5xx/网络：上游整体异常或本机网络故障 → 保守暂停全平台；
+// 其余（4xx / 业务失败）可能是单 key 问题（额度耗尽、key 被禁）→ 只影响该 key。
+func isPlatformLevel(c ErrClass) bool {
+	return c == ClassNetwork || c == ClassServerErr
+}
+
+// ensureMapsLocked 惰性初始化内部 map：让 Scheduler 零值（测试直接字面量构造、
+// 或将来新的构造路径）也可用，避免「忘记初始化 → 写 nil map panic」这类零值陷阱。
+func (s *Scheduler) ensureMapsLocked() {
+	if s.defs == nil {
+		s.defs = map[string]*config.RuntimeProvider{}
+	}
+	if s.states == nil {
+		s.states = map[string]*ProviderState{}
+	}
+	if s.backoffs == nil {
+		s.backoffs = map[string]*Backoff{}
+	}
+	if s.platformBackoffs == nil {
+		s.platformBackoffs = map[string]*Backoff{}
+	}
+	if s.inflight == nil {
+		s.inflight = map[string]int{}
+	}
+}
+
+// beginInflight 尝试占用平台的在途名额（同平台请求串行化）；已占用返回 false。
+func (s *Scheduler) beginInflight(platform string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureMapsLocked()
+	if s.inflight[platform] > 0 {
+		return false
+	}
+	s.inflight[platform]++
+	return true
+}
+
+func (s *Scheduler) endInflight(platform string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inflight != nil && s.inflight[platform] > 0 {
+		s.inflight[platform]--
+	}
 }
 
 // randStagger 抽取 stagger 区间 [min, max]（秒），禁写死常量、取自运行时 config。
@@ -340,7 +451,7 @@ func (s *Scheduler) collectProvider(ctx context.Context, p *config.RuntimeProvid
 	st := ProviderState{ID: p.ID, Name: p.Name}
 	switch {
 	case tokenInvalid != nil:
-		// 401/403：停采该平台，不做退避（退避会掩盖 token 失效）
+		// 401/403：停采该 key，不做退避（退避会掩盖 token 失效）
 		b.Stop()
 		st.Status = StatusTokenInvalid
 		st.Error = &ErrorInfo{Code: CodeTokenInvalid, Message: tokenInvalid.res.Message}
@@ -348,32 +459,62 @@ func (s *Scheduler) collectProvider(ctx context.Context, p *config.RuntimeProvid
 	case len(okIdx) > 0:
 		now := s.clock()
 		b.OnSuccess()
+		// 平台恢复：清掉平台级退避（任一 key 成功即视为平台可用）
+		if pb := s.platformBackoffs[p.Platform]; pb != nil {
+			pb.OnSuccess()
+		}
 		st.Status = StatusOK
 		st.Data = mergePathData(results, okIdx)
 		st.LastSuccessAt = &now
 		st.Error = nil
 		logx.Debugf("采集 %s 成功（%s）", p.ID, elapsed)
 	case rateLimited != nil:
-		// 429：按 Retry-After 顺延（无头用当前退避值）
+		// 429：key 级限流（平台正常）→ 只停该 key，退避基数用等分周期（紧凑恢复）；
+		// 有 Retry-After 则按其顺延
 		now := s.clock()
 		delay := b.OnRateLimited(now, rateLimited.res.RetryAfterS,
-			cfg.Collector.IntervalBaseS, cfg.Collector.BackoffMultiplier, cfg.Collector.BackoffMaxS)
+			s.keyPeriodS(cfg, p), cfg.Collector.BackoffMultiplier, cfg.Collector.BackoffMaxS)
 		st.Status = StatusFailed
 		st.Data = priorData(prior)
 		st.LastSuccessAt = priorSuccess(prior)
 		rs := int(delay / time.Second)
 		st.Error = &ErrorInfo{Code: CodeRateLimited, Message: rateLimited.res.Message, RetryAfterS: &rs}
-		logx.Warnf("采集 %s：429 限流，%ds 后重试", p.ID, rs)
+		logx.Warnf("采集 %s：429 限流（key 级），%ds 后重试", p.ID, rs)
 	default:
-		// 其余失败：指数退避
+		// 其余失败：按「谁的错」分级退避（v0.2.5）
 		now := s.clock()
-		delay := b.OnFailure(now, cfg.Collector.IntervalBaseS, cfg.Collector.BackoffMultiplier, cfg.Collector.BackoffMaxS)
+		cls := otherErr.res.Class
+		mult := cfg.Collector.BackoffMultiplier
+		maxS := cfg.Collector.BackoffMaxS
+		var delay time.Duration
+		level := "key 级"
+		if isPlatformLevel(cls) {
+			// 平台异常（5xx/网络）：暂停该平台全部 key，基数用 interval_base_s（保守）
+			level = "平台级"
+			pb := s.platformBackoffs[p.Platform]
+			if pb == nil {
+				pb = &Backoff{}
+				s.platformBackoffs[p.Platform] = pb
+			}
+			if pb.Eligible(now) {
+				delay = pb.OnFailure(now, cfg.Collector.IntervalBaseS, mult, maxS)
+			} else {
+				// 同 tick 内该平台已有 key 触发过平台级失败：不再升级，仅按剩余时长展示
+				delay = pb.NextAttemptAt().Sub(now)
+			}
+		} else {
+			// key 级失败（其他 4xx / 业务失败）：只停该 key，基数用等分周期
+			delay = b.OnFailure(now, s.keyPeriodS(cfg, p), mult, maxS)
+		}
+		if delay < 0 {
+			delay = 0
+		}
 		st.Status = StatusFailed
 		st.Data = priorData(prior)
 		st.LastSuccessAt = priorSuccess(prior)
 		rs := int(delay / time.Second)
-		st.Error = &ErrorInfo{Code: classCode(otherErr.res.Class), Message: otherErr.res.Message, RetryAfterS: &rs}
-		logx.Warnf("采集 %s：%s，%ds 后重试", p.ID, otherErr.res.Class, rs)
+		st.Error = &ErrorInfo{Code: classCode(cls), Message: otherErr.res.Message, RetryAfterS: &rs}
+		logx.Warnf("采集 %s：%s（%s），%ds 后重试", p.ID, cls, level, rs)
 	}
 	s.states[p.ID] = &st
 	s.publishLocked()

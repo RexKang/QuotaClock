@@ -134,6 +134,8 @@
   .prov-item:hover { background: var(--card2); }
   .prov-item.active { background: var(--accent); color: #fff; }
   .prov-item .prov-name { flex: 1; word-break: break-all; }
+  .prov-item .prov-sub { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .prov-item.active .prov-sub { color: rgba(255,255,255,.75); }
   .prov-item .del { opacity: 0; font-size: 16px; padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.25); }
   .prov-item:hover .del { opacity: 1; }
   /* 平台列表里的停用标记（v0.2.4） */
@@ -142,6 +144,25 @@
   /* 未配置 token 的告警标记（v0.2.4；替代原先恒显的 ✓） */
   .prov-item .miss-tag { font-size: 13px; color: var(--err); border: 1px solid rgba(248,113,113,.4); border-radius: 10px; padding: 0 7px; margin-left: 6px; flex: none; }
   .prov-item.active .miss-tag { color: #fff; border-color: rgba(255,255,255,.6); }
+
+  /* 平台管理：内置平台 + 多 API Key（v0.2.5） */
+  .add-prov { display: flex; gap: 6px; margin-top: 8px; }
+  .add-prov select { flex: 1; min-width: 0; }
+  .empty-plat { color: var(--muted); font-size: 16px; border: 1px dashed var(--border); border-radius: 10px; padding: 24px 16px; text-align: center; }
+  .plat-head { border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 12px; }
+  .plat-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .plat-title #pPlatName { font-size: 19px; font-weight: 600; }
+  .plat-title .plat-id { font-size: 14px; color: var(--muted); font-family: var(--mono); }
+  .key-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .key-row { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px 10px; margin-bottom: 10px; background: var(--card2); }
+  .key-row.off { opacity: .72; }
+  .key-grid { display: grid; grid-template-columns: 1fr 1.6fr; gap: 12px; }
+  .key-row .form-row { margin-bottom: 8px; }
+  .key-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .key-foot .chk { display: flex; align-items: center; gap: 7px; font-size: 16px; color: var(--text); cursor: pointer; margin: 0; }
+  .key-foot .chk input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+  .key-foot .tip { margin: 0; flex: 1; min-width: 140px; }
+  .key-foot button { padding: 5px 12px; font-size: 15px; }
 
   /* 设置面板双标签：平台管理 / 账户安全（v0.2.4） */
   .settings-tabs { display: flex; gap: 4px; background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 16px; width: fit-content; }
@@ -220,48 +241,25 @@
       <div class="modal-grid">
         <div class="prov-list">
           <div id="provItems"></div>
-          <button id="addProvBtn" class="ghost" style="width:100%; margin-top:4px">+ 添加平台</button>
+          <div class="add-prov">
+            <select id="addPlatformSel" title="选择内置平台"></select>
+            <button id="addProvBtn" class="ghost">+ 添加</button>
+          </div>
+          <div class="tip" style="margin-top:8px">只支持内置平台：各家的用量接口与解析规则是配套的，地址由程序内置，你只需填 API Key / Cookie。</div>
         </div>
         <div>
-          <div class="form-cols-3">
-            <div class="form-row">
-              <label>平台 ID（唯一标识）</label>
-              <input type="text" id="fId">
+          <div id="platEmpty" class="empty-plat">左侧选择一个平台进行管理；或用左下角「+ 添加」新增平台。</div>
+          <div id="platBody" style="display:none">
+            <div class="plat-head">
+              <div class="plat-title"><span id="pPlatName"></span><span class="plat-id" id="pPlatID"></span></div>
+              <div class="tip" id="pPlatMeta"></div>
             </div>
-            <div class="form-row">
-              <label>平台名称</label>
-              <input type="text" id="fName">
+            <div class="key-head">
+              <span class="section-title" style="margin:0">API Key</span>
+              <button id="addKeyBtn" class="ghost">+ 添加 API Key</button>
             </div>
-          </div>
-          <div class="form-row check">
-            <input type="checkbox" id="fEnabled">
-            <label for="fEnabled">启用该平台（取消勾选 = 停用，不参与采集）</label>
-          </div>
-          <div class="form-row">
-            <label>Base URL（API 网关地址，不含路径）</label>
-            <input type="text" id="fBase">
-          </div>
-          <div class="form-cols">
-            <div class="form-row">
-              <label>鉴权方式</label>
-              <select id="fAuthStyle">
-                <option value="bearer">bearer（Authorization 头）</option>
-                <option value="cookie">cookie（Cookie 头）</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label>Token（只写不回显）</label>
-              <input type="password" id="fToken" autocomplete="off" placeholder="">
-              <div class="tip" id="fTokenTip">留空 = 保留原值</div>
-            </div>
-          </div>
-          <div class="form-row">
-            <label>额外请求头（每行一条，格式 Key: Value，可覆盖默认头）</label>
-            <textarea id="fHeaders" placeholder="x-server-id: deadbeef...&#10;x-server-instance: server-fn:5"></textarea>
-          </div>
-          <div class="form-row">
-            <label>请求路径（每行一条，相对 Base URL，可含 ?query）</label>
-            <textarea id="fPaths" placeholder="/user/balance"></textarea>
+            <div class="tip" style="margin-bottom:8px">同一平台可填多个 Key（同一账号的不同 Key 或不同账号）。采集会按 <b>基准间隔 ÷ Key 数</b> 把它们的请求等分错开，避免同平台并发互撞。</div>
+            <div id="keyRows"></div>
           </div>
         </div>
       </div>
@@ -271,6 +269,7 @@
           <div class="form-row">
             <label>采集基准间隔（秒）</label>
             <input type="number" id="sInterval" min="30">
+            <div class="tip">每个 API Key 的采集周期；同平台多个 Key 在该周期内等分错开</div>
           </div>
         </div>
         <div class="form-cols">
@@ -312,8 +311,6 @@
 
     <div class="modal-actions">
       <button id="saveBtn">保存</button>
-      <button id="testBtn" class="ghost">测试连接</button>
-      <button id="delProvBtn" class="danger">删除该平台</button>
       <span class="spacer"></span>
       <button id="closeModalBtn" class="ghost">关闭</button>
     </div>
@@ -947,7 +944,12 @@ function renderDetail() {
     return;
   }
   detailId = prov.id;
-  const cv = ((cfgView && cfgView.providers) || []).find(p => p.id === prov.id) || {};
+  // 快照 id = <platform>.<keyID>：取平台信息（内置地址）+ 该凭据
+  const dot = (prov.id || '').indexOf('.');
+  const platId = dot > 0 ? prov.id.slice(0, dot) : prov.id;
+  const keyId = dot > 0 ? prov.id.slice(dot + 1) : '';
+  const cv = ((cfgView && cfgView.providers) || []).find(p => p.platform === platId) || {};
+  const ck = (cv.access_keys || []).find(k => k.id === keyId) || {};
   const okCls = (prov.status === 'ok' || prov.status === 'cached') ? 'ok' : 'err';
   const statusText = prov.status === 'ok' ? '正常'
     : prov.status === 'cached' ? '缓存数据（待本轮刷新）'
@@ -956,9 +958,9 @@ function renderDetail() {
     <div class="kpi"><div class="label">状态</div><div class="value ${okCls}">${esc(statusText)}</div></div>
     <div class="kpi"><div class="label">上次成功采集</div><div class="value">${esc(prov.last_success_at ? fmtTime(prov.last_success_at) : '--')}</div></div>
     <div class="kpi"><div class="label">错误</div><div class="value ${prov.error ? 'err' : 'ok'}">${esc(prov.error ? (prov.error.message || prov.error.code) : '无')}</div></div>
-    <div class="kpi"><div class="label">Base URL</div><div class="value" style="font-size:15px">${esc(cv.base_url || '--')}</div></div>
-    <div class="kpi"><div class="label">路径</div><div class="value" style="font-size:15px">${esc((cv.paths || []).join(' , '))}</div></div>
-    <div class="kpi"><div class="label">鉴权方式</div><div class="value">${esc(cv.auth_style || 'bearer')}</div></div>`;
+    <div class="kpi"><div class="label">平台 / API Key</div><div class="value" style="font-size:15px">${esc(cv.platform_name || platId)}　${esc(ck.name || keyId || '--')}</div></div>
+    <div class="kpi"><div class="label">接口地址</div><div class="value" style="font-size:15px">${esc(cv.base_url || '--')}</div></div>
+    <div class="kpi"><div class="label">请求路径</div><div class="value" style="font-size:15px">${esc((cv.paths || []).join(' , '))}</div></div>`;
   raw.textContent = prov.data === null || prov.data === undefined ? '（暂无数据：尚未成功采集）' : pretty(resolveData(prov.data));
   const withData = provs.filter(p => p.status === 'ok' || p.status === 'cached').length;
   setConn('detail', okCls,
@@ -1106,15 +1108,13 @@ async function pollNow(force) {
 /* ---------- 设置面板（v0.2.4 双标签：平台管理 / 账户安全） ---------- */
 let settingsTab = 'platform';
 
-// switchSettingsTab 切换设置面板标签：编辑平台相关的动作按钮只在「平台管理」出现。
+// switchSettingsTab 切换设置面板标签：平台相关动作按钮只在「平台管理」出现。
 function switchSettingsTab(t) {
   settingsTab = t;
   $('#stabPlatform').classList.toggle('active', t === 'platform');
   $('#stabAccount').classList.toggle('active', t === 'account');
   $('#panePlatform').classList.toggle('active', t === 'platform');
   $('#paneAccount').classList.toggle('active', t === 'account');
-  $('#testBtn').style.display = t === 'platform' ? '' : 'none';
-  $('#delProvBtn').style.display = t === 'platform' ? '' : 'none';
   if (t === 'account') renderAccountPane();
 }
 
@@ -1146,7 +1146,8 @@ function renderAccountPane() {
 async function openSettings() {
   // 每次打开都取最新配置：PUT 是全量替换，避免用过期视图覆盖服务端新状态
   try { await refreshCfgView(); } catch (e) { toast('加载配置失败'); return; }
-  editingId = (cfgView.providers || [])[0] && cfgView.providers[0].id;
+  const provs = cfgView.providers || [];
+  editingId = provs[0] ? provs[0].platform : '';
   $('#sAuthMode').value = cfgView.auth.mode;
   $('#sPassword').value = '';
   $('#sInterval').value = cfgView.collector.interval_base_s;
@@ -1154,93 +1155,194 @@ async function openSettings() {
   $('#sPort').value = cfgView.listen.port;
   $('#settingsError').classList.remove('open');
   $('#settingsError').textContent = '';
+  renderAddPlatformSelect();
   renderProvList();
-  renderEditForm();
+  renderPlatformPane();
   switchSettingsTab('platform');
   $('#settingsModal').classList.add('open');
 }
+
+/* ---------- 平台管理（v0.2.5：内置平台 + 多 API Key） ---------- */
+
+// platformOf 取当前编辑的平台条目（editingId = 平台标识）。
+function platformOf(id) { return (cfgView.providers || []).find(p => p.platform === id); }
+
+// platName 平台显示名（由服务端带出，兜底用标识）。
+function platName(p) { return p.platform_name || p.platform; }
+
+// renderAddPlatformSelect 添加平台下拉：只列「尚未配置」的内置平台（不允许自建）。
+function renderAddPlatformSelect() {
+  const sel = $('#addPlatformSel');
+  const used = {};
+  (cfgView.providers || []).forEach(p => { used[p.platform] = true; });
+  const avail = (cfgView.platforms || []).filter(x => !used[x.id]);
+  sel.innerHTML = '';
+  if (!avail.length) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = '所有平台都已添加';
+    sel.appendChild(o);
+    sel.disabled = true;
+    $('#addProvBtn').disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  $('#addProvBtn').disabled = false;
+  avail.forEach(x => {
+    const o = document.createElement('option');
+    o.value = x.id;
+    o.textContent = x.name;
+    sel.appendChild(o);
+  });
+}
+
 function renderProvList() {
   const box = $('#provItems');
   box.innerHTML = '';
-  (cfgView.providers || []).forEach(p => {
+  const provs = cfgView.providers || [];
+  if (!provs.length) {
+    box.innerHTML = '<div class="tip" style="padding:6px 2px">还没有平台——从下面选一个内置平台添加</div>';
+    return;
+  }
+  provs.forEach(p => {
+    const keys = p.access_keys || [];
+    const enabled = keys.filter(k => k.enabled !== false).length;
+    const noToken = keys.filter(k => !k.has_token).length;
     const div = document.createElement('div');
-    div.className = 'prov-item' + (p.id === editingId ? ' active' : '');
-    const offTag = p.enabled === false ? '<span class="off-tag">停用</span>' : '';
-    // 有 token 不再显示 ✓（与「停用」并排会被误读成启用状态）；只在缺失时告警——缺 token 必然采集失败
-    const tokTag = p.has_token ? '' : '<span class="miss-tag">无 token</span>';
-    div.innerHTML = `<span class="prov-name">${esc(p.name)}</span>${tokTag}${offTag}<span class="del" title="删除">✕</span>`;
+    div.className = 'prov-item' + (p.platform === editingId ? ' active' : '');
+    // 停用标记看「该平台还有没有启用的 Key」；缺 token 才告警（恒显 ✓ 会被误读成状态）
+    const offTag = enabled ? '' : '<span class="off-tag">停用</span>';
+    const tokTag = noToken ? '<span class="miss-tag">缺 token</span>' : '';
+    div.innerHTML = `<span class="prov-name">${esc(platName(p))}<span class="prov-sub">${keys.length} 个 Key</span></span>${tokTag}${offTag}<span class="del" title="删除平台">✕</span>`;
     div.onclick = e => {
       if (e.target.classList.contains('del')) return;
-      flushForm();
-      editingId = p.id;
+      flushKeys();
+      editingId = p.platform;
       renderProvList();
-      renderEditForm();
+      renderPlatformPane();
     };
     div.querySelector('.del').onclick = e => {
       e.stopPropagation();
-      if (!confirm(`删除平台「${p.name}」？（保存后生效）`)) return;
-      cfgView.providers = cfgView.providers.filter(x => x.id !== p.id);
-      if (editingId === p.id) editingId = (cfgView.providers[0] || {}).id;
+      if (!confirm(`删除平台「${platName(p)}」及其 ${keys.length} 个 API Key？（保存后生效）`)) return;
+      cfgView.providers = (cfgView.providers || []).filter(x => x.platform !== p.platform);
+      if (editingId === p.platform) editingId = (cfgView.providers[0] || {}).platform || '';
       renderProvList();
-      renderEditForm();
+      renderPlatformPane();
+      renderAddPlatformSelect();
     };
     box.appendChild(div);
   });
 }
-function renderEditForm() {
-  const p = (cfgView.providers || []).find(x => x.id === editingId);
-  if (!p) { $('#fName').value = ''; $('#fBase').value = ''; $('#fPaths').value = ''; $('#fHeaders').value = ''; $('#fToken').value = ''; $('#fId').value = ''; $('#fEnabled').checked = true; return; }
-  $('#fId').value = p.id;
-  $('#fName').value = p.name;
-  $('#fEnabled').checked = p.enabled !== false; // 视图恒输出 enabled；缺字段按启用（v0.2.4）
-  $('#fBase').value = p.base_url;
-  $('#fAuthStyle').value = p.auth_style || 'bearer';
-  $('#fPaths').value = (p.paths || []).join('\n');
-  $('#fHeaders').value = Object.entries(p.extra_headers || {}).map(([k, v]) => k + ': ' + v).join('\n');
-  $('#fToken').value = ''; // token 只写不回显
-  const authed = cfgView.auth.authenticated;
-  $('#fTokenTip').textContent = authed
-    ? (p.has_token ? `已保存（${p.token_masked || '****'}），留空 = 保留原值` : '未配置 token，直接填写即可')
-    : '未登录：留空 = 保留原值；none 模式下不显示掩码';
+
+// renderPlatformPane 右侧：平台信息（内置地址，只读）+ 该平台的 API Key 列表。
+function renderPlatformPane() {
+  const p = platformOf(editingId);
+  const empty = $('#platEmpty');
+  const body = $('#platBody');
+  if (!p) {
+    empty.style.display = '';
+    body.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  body.style.display = '';
+  $('#pPlatName').textContent = platName(p);
+  $('#pPlatID').textContent = p.platform;
+  $('#pPlatMeta').innerHTML = '接口地址：<code>' + esc(p.base_url || '') + '</code>　请求路径：<code>' +
+    esc((p.paths || []).join(' , ')) + '</code>　（内置，无需填写）';
+  const box = $('#keyRows');
+  box.innerHTML = '';
+  const keys = p.access_keys || [];
+  if (!keys.length) {
+    box.innerHTML = '<div class="empty-plat">该平台还没有 API Key，点右上角「+ 添加 API Key」录入一个</div>';
+    return;
+  }
+  keys.forEach((k, i) => box.appendChild(keyRowEl(p, k, i)));
 }
-function flushForm() {
-  const p = (cfgView.providers || []).find(x => x.id === editingId);
-  if (!p) return;
-  const newId = $('#fId').value.trim() || p.id;
-  p.id = newId;
-  p.name = $('#fName').value.trim() || p.name;
-  p.base_url = $('#fBase').value.trim();
-  p.auth_style = $('#fAuthStyle').value;
-  p.enabled = $('#fEnabled').checked; // v0.2.4：勾选框 → PUT enabled（未勾选 = false）
-  p.paths = $('#fPaths').value.split('\n').map(s => s.trim()).filter(Boolean);
-  if (!p.paths.length) p.paths = ['/'];
-  p._tokenInput = $('#fToken').value;
-  const eh = {};
-  $('#fHeaders').value.split('\n').forEach(line => {
-    const i = line.indexOf(':');
-    if (i > 0) {
-      const k = line.slice(0, i).trim();
-      const v = line.slice(i + 1).trim();
-      if (k) eh[k] = v;
+
+// keyRowEl 单个 API Key 的编辑行：名称 + token（只写）+ 启用勾选 + 测试/删除。
+function keyRowEl(p, k, idx) {
+  const authed = !!(cfgView.auth && cfgView.auth.authenticated);
+  const row = document.createElement('div');
+  row.className = 'key-row' + (k.enabled === false ? ' off' : '');
+  row.dataset.keyId = k.id;
+  let tip;
+  if (!k.has_token) tip = '未配置 token，直接填写即可';
+  else if (authed && k.token_masked) tip = `已保存（${k.token_masked}），留空 = 保留原值`;
+  else tip = '已保存，留空 = 保留原值';
+  row.innerHTML = `
+    <div class="key-grid">
+      <div class="form-row">
+        <label>名称（仅用于区分，可留空）</label>
+        <input type="text" class="k-name" value="${esc(k.name || '')}" placeholder="如 A1 / 备用">
+      </div>
+      <div class="form-row">
+        <label>API Key / Cookie（只写不回显）</label>
+        <input type="password" class="k-token" autocomplete="off" placeholder="留空 = 保留原值">
+      </div>
+    </div>
+    <div class="key-foot">
+      <label class="chk"><input type="checkbox" class="k-enabled"${k.enabled === false ? '' : ' checked'}>启用</label>
+      <span class="tip k-tip">${esc(tip)}</span>
+      <button class="ghost k-test" type="button">测试</button>
+      <button class="ghost danger k-del" type="button">删除</button>
+    </div>`;
+  row.querySelector('.k-enabled').onchange = e => {
+    k.enabled = e.target.checked;
+    row.classList.toggle('off', !e.target.checked);
+    renderProvList(); // 列表上的「停用」标记随之更新
+  };
+  row.querySelector('.k-del').onclick = () => {
+    if ((p.access_keys || []).length <= 1) {
+      toast('至少保留一个 API Key；不想采集请取消勾选「启用」');
+      return;
     }
-  });
-  p.extra_headers = eh;
-  editingId = newId;
+    if (!confirm(`删除 API Key「${k.name || k.id}」？（保存后生效）`)) return;
+    p.access_keys = (p.access_keys || []).filter(x => x.id !== k.id);
+    renderPlatformPane();
+    renderProvList();
+  };
+  row.querySelector('.k-test').onclick = () => testKey(p.platform, k.id, row);
+  return row;
 }
-function buildPutBody() {
-  flushForm();
-  const providers = (cfgView.providers || []).map(p => {
-    const o = {
-      id: p.id, name: p.name, base_url: p.base_url,
-      paths: p.paths, auth_style: p.auth_style || 'bearer',
-      extra_headers: p.extra_headers || {},
-      enabled: p.enabled !== false,
-    };
-    if (p._tokenInput) o.token = p._tokenInput;
-    return o;
+
+// flushKeys 把 Key 行上的输入回写到模型（保存/切换前调用；token 只写不回显）。
+function flushKeys() {
+  const p = platformOf(editingId);
+  if (!p) return;
+  const body = $('#platBody');
+  if (!body || body.style.display === 'none') return;
+  const rows = $('#keyRows').querySelectorAll('.key-row');
+  if (!rows.length) return;
+  const byId = {};
+  (p.access_keys || []).forEach(k => { byId[k.id] = k; });
+  const next = [];
+  rows.forEach(row => {
+    const k = byId[row.dataset.keyId];
+    if (!k) return;
+    const nameEl = row.querySelector('.k-name');
+    const tokEl = row.querySelector('.k-token');
+    const enEl = row.querySelector('.k-enabled');
+    if (nameEl) k.name = nameEl.value.trim();
+    if (tokEl && tokEl.value) k._tokenInput = tokEl.value;
+    if (enEl) k.enabled = enEl.checked;
+    next.push(k);
   });
+  if (next.length) p.access_keys = next;
+}
+
+function buildPutBody() {
+  flushKeys();
+  const providers = (cfgView.providers || []).map(p => ({
+    platform: p.platform,
+    access_keys: (p.access_keys || []).map(k => {
+      const kk = { id: k.id, name: k.name || '', enabled: k.enabled !== false };
+      if (k._tokenInput) kk.token = k._tokenInput;
+      return kk;
+    }),
+  }));
   const body = {
-    version: 3,
+    version: cfgView.version || 4,
     listen: { host: $('#sHost').value.trim(), port: parseInt($('#sPort').value, 10) },
     collector: Object.assign({}, cfgView.collector, { interval_base_s: parseInt($('#sInterval').value, 10) }),
     auth: { mode: $('#sAuthMode').value },
@@ -1283,13 +1385,14 @@ async function saveSettings() {
     }
   }
 }
-async function testConnection() {
-  flushForm();
-  const p = (cfgView.providers || []).find(x => x.id === editingId);
-  if (!p) { toast('请先选择平台'); return; }
-  const body = { provider_id: p.id };
-  if (p._tokenInput) body.token = p._tokenInput;
-  const btn = $('#testBtn');
+async function testKey(platform, keyId, row) {
+  flushKeys();
+  const p = platformOf(platform);
+  const k = p && (p.access_keys || []).find(x => x.id === keyId);
+  if (!k) { toast('请先选择 API Key'); return; }
+  const body = { provider_id: platform + '.' + keyId };
+  if (k._tokenInput) body.token = k._tokenInput;
+  const btn = row.querySelector('.k-test');
   btn.disabled = true;
   btn.textContent = '测试中...';
   try {
@@ -1297,10 +1400,11 @@ async function testConnection() {
     toast(`连接正常（${r.latency_ms}ms）`);
   } catch (e) {
     if (e.status === 401) openLogin('测试连接需要管理员登录');
+    else if (e.status === 400) toast('这个 Key 还没保存：先点「保存」再测试');
     else toast('测试失败：' + (e.message || '未知错误'));
   } finally {
     btn.disabled = false;
-    btn.textContent = '测试连接';
+    btn.textContent = '测试';
   }
 }
 
@@ -1325,7 +1429,7 @@ async function doLogin() {
     $('#loginPassword').value = '';
     toast('已登录');
     await refreshCfgView();
-    renderEditForm();
+    renderPlatformPane(); // 掩码 hint 只在登录态下发：重渲染 Key 行
     if (settingsTab === 'account') renderAccountPane();
   } catch (e) {
     let msg = e.message;
@@ -1340,7 +1444,7 @@ async function doLogout() {
   toast('已登出');
   $('#settingsModal').classList.remove('open'); // 设置入口随登出隐藏，面板同步关闭
   await refreshCfgView();
-  renderEditForm();
+  renderPlatformPane();
 }
 
 /* ---------- 事件绑定 ---------- */
@@ -1370,24 +1474,33 @@ $('#acctAuthBtn').onclick = () => {
 $('#closeModalBtn').onclick = () => $('#settingsModal').classList.remove('open');
 $('#settingsModal').addEventListener('click', e => { if (e.target === e.currentTarget) e.target.classList.remove('open'); });
 $('#saveBtn').onclick = saveSettings;
-$('#testBtn').onclick = testConnection;
 $('#addProvBtn').onclick = () => {
-  flushForm();
+  flushKeys();
   if (!cfgView.providers) cfgView.providers = []; // null 兜底（服务端已根治为 []，防旧会话视图）
-  const id = 'new-' + Date.now().toString(36);
-  cfgView.providers.push({ id, name: '新平台', base_url: 'https://', paths: ['/'], auth_style: 'bearer', extra_headers: {}, has_token: false, enabled: true });
-  editingId = id;
+  const sel = $('#addPlatformSel');
+  const platform = sel.value;
+  if (!platform) { toast('没有可添加的平台'); return; }
+  const meta = (cfgView.platforms || []).find(x => x.id === platform) || {};
+  cfgView.providers.push({
+    platform,
+    platform_name: meta.name || platform,
+    base_url: meta.base_url || '',
+    paths: meta.paths || [],
+    access_keys: [{ id: 'k' + Date.now().toString(36), name: '', has_token: false, enabled: true }],
+  });
+  editingId = platform;
+  renderAddPlatformSelect();
   renderProvList();
-  renderEditForm();
+  renderPlatformPane();
 };
-$('#delProvBtn').onclick = () => {
-  const p = (cfgView.providers || []).find(x => x.id === editingId);
+$('#addKeyBtn').onclick = () => {
+  flushKeys();
+  const p = platformOf(editingId);
   if (!p) return;
-  if (!confirm(`删除平台「${p.name}」？（保存后生效）`)) return;
-  cfgView.providers = cfgView.providers.filter(x => x.id !== p.id);
-  editingId = (cfgView.providers[0] || {}).id;
+  if (!p.access_keys) p.access_keys = [];
+  p.access_keys.push({ id: 'k' + Date.now().toString(36), name: '', has_token: false, enabled: true });
+  renderPlatformPane();
   renderProvList();
-  renderEditForm();
 };
 $('#providerSel').onchange = e => { detailId = e.target.value; renderDetail(); };
 $('#authBtn').onclick = () => {

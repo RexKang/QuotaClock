@@ -1,6 +1,6 @@
 // Package config 承载 QuotaClock 配置的三形态与转换：
 //
-//	File  落盘形态（token_cipher / password_hash）
+//	File  落盘形态（token_cipher / password_hash；v0.2.5 起 provider 只存平台标识与凭据）
 //	View  GET /api/config 脱敏响应（has_token / token_masked[仅登录] / password_is_default；无任何 token 字段）
 //	Put   PUT /api/config 请求体（token / password 为仅输入明文；计算字段忽略；敏感字段拒绝）
 //
@@ -9,8 +9,9 @@ package config
 
 import "strconv"
 
-// CurrentVersion 是当前配置 schema 版本（version 2 = v0.1，version 3 = v0.2）。
-const CurrentVersion = 3
+// CurrentVersion 是当前配置 schema 版本
+// （2 = v0.1，3 = v0.2.0~v0.2.4，4 = v0.2.5：平台预设 + 同平台多 key）。
+const CurrentVersion = 4
 
 // AuthMode 常量。
 const (
@@ -34,6 +35,10 @@ type Listen struct {
 func (l Listen) Addr() string { return l.Host + ":" + strconv.Itoa(l.Port) }
 
 // Collector 采集调度参数。
+//
+// v0.2.5 语义澄清：IntervalBaseS 是**每个 key** 的采集周期（本次返回后到下次发起）。
+// 同一平台下的多个 key 在该周期内等分错开（key i 的偏移 = i × IntervalBaseS / keyCount），
+// 使同平台的请求彼此拉开、不形成突发（用户实测：同平台不同 key 同时打会互相冲突）。
 type Collector struct {
 	IntervalBaseS     int `json:"interval_base_s"`
 	JitterMinS        int `json:"jitter_min_s"`
@@ -72,6 +77,10 @@ func CopyBoolPtr(p *bool) *bool {
 	return &v
 }
 
+// RuntimeID 拼装运行时 provider 标识：<platform>.<keyID>。
+// 快照、缓存、退避状态、前端卡片都以它为最小单元（一个 key 一张卡）。
+func RuntimeID(platform, keyID string) string { return platform + "." + keyID }
+
 // ---------- 落盘形态 ----------
 
 // FileAuth 落盘 auth 段：仅 bcrypt hash，永不落明文。
@@ -80,20 +89,24 @@ type FileAuth struct {
 	PasswordHash string `json:"password_hash"`
 }
 
-// FileProvider 落盘 provider：token 只存密文。
-type FileProvider struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	BaseURL      string            `json:"base_url"`
-	Paths        []string          `json:"paths"`
-	AuthStyle    string            `json:"auth_style,omitempty"`    // 缺省 bearer
-	ExtraHeaders map[string]string `json:"extra_headers,omitempty"` // S2 增量
-	TokenCipher  string            `json:"token_cipher,omitempty"`
-	Enabled      *bool             `json:"enabled,omitempty"` // v0.2.4 恢复：nil = 启用（兼容旧配置缺字段）
+// AccessKey 平台下的单个访问凭据（v0.2.5）：token 只存密文。
+type AccessKey struct {
+	ID          string `json:"id"`                     // 平台内唯一（同时作为运行时 provider id 的后半段）
+	Name        string `json:"name"`                   // 展示名（如 "A1"/"主号"），空则回落平台名
+	TokenCipher string `json:"token_cipher,omitempty"` // 密文；空 = 未配置
+	Enabled     *bool  `json:"enabled,omitempty"`      // nil = 启用
 }
 
-// IsEnabled 返回该 provider 是否参与采集（nil 缺省视为启用，兼容旧配置）。
-func (p *FileProvider) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
+// IsEnabled 缺省（nil）= 启用；值接收者，便于切片取元素直接判定。
+func (k AccessKey) IsEnabled() bool { return k.Enabled == nil || *k.Enabled }
+
+// FileProvider 落盘 provider（v0.2.5）：一个平台一条，下挂 N 个访问凭据。
+// base_url / paths / auth_style 由 Platform 预设派生，不落盘——杜绝「配置里的地址」与
+// 「代码里的解析逻辑」错配。
+type FileProvider struct {
+	Platform   string      `json:"platform"`
+	AccessKeys []AccessKey `json:"access_keys"`
+}
 
 // File 配置文件落盘形态。
 type File struct {
@@ -103,6 +116,9 @@ type File struct {
 	Auth      FileAuth       `json:"auth"`
 	Providers []FileProvider `json:"providers"`
 }
+
+// KeyCount 该平台下凭据总数。
+func (p *FileProvider) KeyCount() int { return len(p.AccessKeys) }
 
 // ---------- GET /api/config 脱敏视图 ----------
 
@@ -114,17 +130,22 @@ type ViewAuth struct {
 	Authenticated     bool   `json:"authenticated"`
 }
 
-// ViewProvider 脱敏 provider：无 token/token_cipher 字段；TokenMasked 仅登录输出。
+// ViewAccessKey 脱敏凭据：无 token/token_cipher 字段。
+type ViewAccessKey struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	HasToken    bool   `json:"has_token"`
+	TokenMasked string `json:"token_masked,omitempty"` // 仅登录可见
+	Enabled     bool   `json:"enabled"`                // 无 omitempty：false 也要输出
+}
+
+// ViewProvider 脱敏 provider：平台预设信息直接带出（前端无需自维护映射表）。
 type ViewProvider struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	BaseURL      string            `json:"base_url"`
-	Paths        []string          `json:"paths"`
-	AuthStyle    string            `json:"auth_style,omitempty"`
-	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
-	HasToken     bool              `json:"has_token"`
-	TokenMasked  string            `json:"token_masked,omitempty"`
-	Enabled      bool              `json:"enabled"` // v0.2.4：无 omitempty，false 也输出（nil→true 已在 BuildView 归一）
+	Platform     string          `json:"platform"`
+	PlatformName string          `json:"platform_name"`
+	BaseURL      string          `json:"base_url"` // 只读展示用（不可配置）
+	Paths        []string        `json:"paths"`    // 只读展示用（不可配置）
+	AccessKeys   []ViewAccessKey `json:"access_keys"`
 }
 
 // View GET /api/config 响应全集（PUT 全量替换的回传素材）。
@@ -134,24 +155,37 @@ type View struct {
 	Collector Collector      `json:"collector"`
 	Auth      ViewAuth       `json:"auth"`
 	Providers []ViewProvider `json:"providers"`
+	Platforms []ViewPlatform `json:"platforms"` // 内置平台目录（前端下拉用，非敏感）
+}
+
+// ViewPlatform 内置平台目录项：前端不必自行维护平台清单（单一真源在 Go 的 platforms 表）。
+type ViewPlatform struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	BaseURL string   `json:"base_url"`
+	Paths   []string `json:"paths"`
 }
 
 // ---------- PUT /api/config 请求体 ----------
 
-// PutProvider 请求中的 provider：Token 为仅输入明文（空 = 保留原值）。
-type PutProvider struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	BaseURL      string            `json:"base_url"`
-	Paths        []string          `json:"paths"`
-	AuthStyle    string            `json:"auth_style,omitempty"`
-	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
-	Token        string            `json:"token,omitempty"`
-	Enabled      *bool             `json:"enabled,omitempty"` // nil = 启用（前端未勾选传输 false）
+// PutAccessKey 请求中的凭据：Token 为仅输入明文（空 = 保留原值）。
+type PutAccessKey struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Token   string `json:"token,omitempty"`
+	Enabled *bool  `json:"enabled,omitempty"`
 }
 
 // IsEnabled 请求体语义同落盘：nil = 启用（兼容旧客户端不传该字段）。
-func (p *PutProvider) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
+func (k PutAccessKey) IsEnabled() bool { return k.Enabled == nil || *k.Enabled }
+
+// PutProvider 请求中的 provider：只允许平台标识 + 凭据。
+// base_url/paths/auth_style 等派生字段在 wire 层被容忍并剥离（GET 响应回传时自然携带），
+// 平台预设才是唯一真源——手改这些字段不会生效，也不会报错。
+type PutProvider struct {
+	Platform   string         `json:"platform"`
+	AccessKeys []PutAccessKey `json:"access_keys"`
+}
 
 // PutAuth 请求中的 auth 段：Password 为仅输入明文（空 = 保留原 hash）。
 type PutAuth struct {
@@ -170,13 +204,16 @@ type Put struct {
 
 // ---------- 运行时视图（内存，含解密 token） ----------
 
-// RuntimeProvider 运行期 provider：Token 仅存在于内存。
+// RuntimeProvider 运行期 provider：一个 AccessKey 展开成一条（扁平），Token 仅在内存。
 // Enabled 用 *bool：nil = 启用（与落盘层同语义）。零值结构体因此默认「启用」，
 // 杜绝「构造时忘记赋值 → 静默停采」这类零值陷阱（v0.2.4 回归项）。
 type RuntimeProvider struct {
-	ID           string
-	Name         string
-	BaseURL      string
+	ID           string // = RuntimeID(Platform, KeyID)
+	Platform     string // 调度分组用（同平台等分错峰）
+	KeyID        string
+	KeyName      string // 用户填的凭据名（如 "A1"），空则回落平台名
+	Name         string // 展示名："平台名 · key名"
+	BaseURL      string // 由平台预设派生
 	Paths        []string
 	AuthStyle    string
 	ExtraHeaders map[string]string
@@ -187,6 +224,9 @@ type RuntimeProvider struct {
 	// DecryptFailed 表示 token_cipher 解密失败（key.bin 丢失/不匹配）：
 	// 采集器应将其标记 token_invalid（错误码 TOKEN_DECRYPT_FAILED），不 crash（设计 §6.4）。
 	DecryptFailed bool
+	// KeyIndex/KeyCount：同平台内的序号与总数（调度等分偏移 = KeyIndex × base/KeyCount）。
+	KeyIndex int
+	KeyCount int
 }
 
 // IsEnabled 返回该 provider 是否参与采集（nil 缺省视为启用）。

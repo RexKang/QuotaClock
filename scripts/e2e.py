@@ -74,14 +74,18 @@ def http(method, url, body=None, headers=None, timeout=10):
 class Instance:
     """一个被演练的 quotaclock 进程，附带 stdout 采集。"""
 
-    def __init__(self, binpath, cfg, port, new_group=False):
+    def __init__(self, binpath, cfg, port, new_group=False, upstream=None):
         self.port = port
         kw = {}
         if IS_WIN and new_group:
             kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        # v0.2.5：平台地址由代码内置，测试用环境开关把请求 origin 指向 mock（paths 不变）
+        env = dict(os.environ)
+        if upstream:
+            env["QUOTACLOCK_UPSTREAM_OVERRIDE"] = upstream
         self.proc = subprocess.Popen([binpath, "-config", cfg, "-port", str(port)],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     universal_newlines=True, **kw)
+                                     universal_newlines=True, env=env, **kw)
         self.lines = []
         self.stop = threading.Event()
         self.reader = threading.Thread(target=self._read, daemon=True)
@@ -165,18 +169,18 @@ class MockUpstream:
         return f"{BASE}:{self.port}"
 
 
-def scenario_first_start(binpath):
+def scenario_first_start(binpath, mock):
     print("\n== 场景 1：首启模板 / 默认密码检测 / 静态页 ==")
     d = tempfile.mkdtemp(prefix="qc-e2e-")
     port = free_port()
     cfg = os.path.join(d, "config.json")
-    inst = Instance(binpath, cfg, port)
+    inst = Instance(binpath, cfg, port, upstream=mock.url())
     snap, boot = inst.wait_ready()
     check("首启就绪（观测 %.2fs）" % boot, boot < 10)
     check("空配置快照 providers 空", snap["providers"] == [])
     with open(cfg, encoding="utf-8") as f:
         created = json.load(f)
-    check("模板 version=3", created["version"] == 3)
+    check("模板 version=4", created["version"] == 4)
     check("模板 auth=admin + providers 空", created["auth"]["mode"] == "admin" and created["providers"] == [])
     locks = [x for x in os.listdir(d) if x.startswith("quotaclock-") and x.endswith(".lock")]
     check("锁文件已创建", len(locks) == 1)
@@ -187,6 +191,9 @@ def scenario_first_start(binpath):
     s = json.dumps(view)
     check("GET config 200", code == 200)
     check("config providers 为数组 []（非 null，添加平台依赖）", view["providers"] == [])
+    plats = [p["id"] for p in view.get("platforms", [])]
+    check("内置平台目录 4 项（前端下拉源）",
+          plats == ["zhipu-glm", "deepseek", "kimi-code", "opencode"], json.dumps(plats))
     check("password_is_default=true（默认密码未改）", view["auth"]["password_is_default"] is True)
     check("无 token/token_cipher 字段", "token_cipher" not in s and '"token":' not in s)
     out = subprocess.run([binpath, "-version"], capture_output=True, text=True)
@@ -217,17 +224,17 @@ def _scenario_api_chain(d, port, cfg, inst, mock):
     cookie = re.search(r"qc_session=([^;]+)", setc).group(1)
     auth = {"Cookie": "qc_session=" + cookie}
 
-    code, _, _ = http("PUT", base + "/api/config", {"version": 3})
+    code, _, _ = http("PUT", base + "/api/config", {"version": 4})
     check("未登录 PUT 401", code == 401)
 
     put = {
-        "version": 3,
+        "version": 4,
         "listen": {"host": "127.0.0.1", "port": port},
         "collector": {"interval_base_s": 30, "jitter_min_s": 5, "jitter_max_s": 25,
                       "stagger_min_s": 1, "stagger_max_s": 5, "backoff_multiplier": 2, "backoff_max_s": 1800},
         "auth": {"mode": "admin"},
-        "providers": [{"id": "mockp", "name": "Mock 平台", "base_url": mock.url(),
-                       "paths": ["/q"], "auth_style": "bearer", "token": "sk-e2e-token-abcdef"}],
+        "providers": [{"platform": "opencode",
+                       "access_keys": [{"id": "mockk", "name": "Mock Key", "token": "sk-e2e-token-abcdef"}]}],
     }
     code, _, body = http("PUT", base + "/api/config", put, auth)
     check("PUT 配置 200 ok", code == 200 and body.get("ok") is True)
@@ -235,12 +242,18 @@ def _scenario_api_chain(d, port, cfg, inst, mock):
         saved = json.load(f)
     check("config.json 无明文 token", "sk-e2e-token-abcdef" not in json.dumps(saved))
     check("config.json token_cipher 已落盘", "token_cipher" in json.dumps(saved))
+    check("落盘不含 base_url/paths（地址由预设派生）",
+          "base_url" not in json.dumps(saved) and '"paths"' not in json.dumps(saved))
 
     snap = wait_snapshot(base, lambda s: (s["providers"] or [{}])[0].get("status") == "ok", timeout=30)
     p = (snap["providers"] or [{}])[0]
     check("热生效后采集器拉到数据 status=ok", p.get("status") == "ok", json.dumps(p)[:200])
+    check("运行时 ID = <平台>.<凭据>", p.get("id") == "opencode.mockk", p.get("id"))
+    check("展示名 = 平台 · 凭据", p.get("name") == "OpenCode · Mock Key", p.get("name"))
     check("data 透传 percentage", (p.get("data") or {}).get("data", {}).get("percentage") == 50)
-    check("last_success_at RFC3339", bool(re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", p.get("last_success_at") or "")))
+    check("last_success_at 本地时区（+08:00 而非 Z）",
+          bool(re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$", p.get("last_success_at") or "")),
+          p.get("last_success_at"))
 
     t0 = time.time()
     http("GET", base + "/api/quotas")
@@ -258,7 +271,9 @@ def _scenario_api_chain(d, port, cfg, inst, mock):
 
     code, _, view = http("GET", base + "/api/config", None, auth)
     pv = view["providers"][0]
-    check("登录态 token_masked", pv.get("token_masked") == "sk****ef")
+    check("视图含平台目录名与凭据列表", pv["platform_name"] == "OpenCode" and len(pv["access_keys"]) == 1)
+    check("登录态 token_masked", pv["access_keys"][0].get("token_masked") == "sk****ef",
+          json.dumps(pv["access_keys"][0]))
 
     code, _, _ = http("POST", base + "/api/logout", None, auth)
     check("logout 200", code == 200)
@@ -270,7 +285,7 @@ def _scenario_api_chain(d, port, cfg, inst, mock):
     # 特殊字符 token（FX-1）落配置 → 之后校验日志脱敏
     code, hdr, _ = http("POST", base + "/api/login", {"password": "Quota@2026090S"})
     cookie2 = re.search(r"qc_session=([^;]+)", hdr.get("Set-Cookie", "")).group(1)
-    put["providers"][0]["token"] = FX1_TOKEN
+    put["providers"][0]["access_keys"][0]["token"] = FX1_TOKEN
     code, _, _ = http("PUT", base + "/api/config", put, {"Cookie": "qc_session=" + cookie2})
     check("特殊字符 token PUT 成功", code == 200)
     time.sleep(0.3)  # 留给采集失败 WARN 日志（mock 改 401 验证失败态传播）
@@ -295,7 +310,7 @@ def scenario_log_redaction(inst, cfg):
 
 
 def scenario_migration(binpath, mock):
-    print("\n== 场景 3：v0.1 旁路迁移（方案 A 自动改写） ==")
+    print("\n== 场景 3：v0.1 旁路迁移（方案 A 自动改写 → 平台化） ==")
     d = tempfile.mkdtemp(prefix="qc-e2e-mig-")
     port = free_port()
     cfg = os.path.join(d, "config.json")
@@ -313,39 +328,144 @@ def scenario_migration(binpath, mock):
             {"enabled": True, "id": "opencode", "name": "OpenCode Go", "baseURL": "http://127.0.0.1:8787/opencode",
              "token": "auth=Fe26.2**fake; oc_locale=zh", "endpoints": [
                  {"method": "GET", "path": "/_server?id=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef&args=%7B%22t%22%3A9%7D"}]},
-            {"enabled": False, "id": "disabled", "name": "禁用", "baseURL": "https://d.example.com",
-             "token": "sk-fake-d", "endpoints": [{"method": "GET", "path": "/x"}]},
+            # 同一平台的第二个凭据且停用：覆盖「enabled=false 导入并保持停用」+「同平台归并」
+            {"enabled": False, "id": "deepseek-key2", "name": "DeepSeek 备用", "baseURL": "https://api.deepseek.com",
+             "token": "sk-fake-d2", "endpoints": [{"method": "GET", "path": "/user/balance"}]},
+            # 未知平台：v0.2.5 不再允许自建平台 → 跳过 + WARN
+            {"enabled": True, "id": "custom", "name": "自定义代理", "baseURL": "https://my-proxy.example.com",
+             "token": "sk-fake-c", "endpoints": [{"method": "GET", "path": "/x"}]},
         ],
     }
     with open(cfg, "w", encoding="utf-8") as f:
         json.dump(v1, f, ensure_ascii=False)
-    inst = Instance(binpath, cfg, port)
+    inst = Instance(binpath, cfg, port, upstream=mock.url())
     try:
         inst.wait_ready()
         with open(cfg, encoding="utf-8") as f:
             mig = json.load(f)
         s = json.dumps(mig)
-        check("迁移升版 version=3", mig["version"] == 3)
+        check("迁移升版 version=4", mig["version"] == 4)
         check("迁移后无明文 token", not any(x in s for x in
-              ["fake-zhipu-token", "sk-fake-bbbb", "sk-fake-kimi", "Fe26.2**fake", "sk-fake-d"]))
-        byid = {p["id"]: p for p in mig["providers"]}
-        check("enabled=false 导入并保持停用（5 个导入）",
-              len(mig["providers"]) == 5 and byid["disabled"].get("enabled") is False,
-              json.dumps({p["id"]: p.get("enabled") for p in mig["providers"]}))
-        check("停用平台 token 仍加密落盘（不丢配置）", bool(byid["disabled"].get("token_cipher")))
+              ["fake-zhipu-token", "sk-fake-bbbb", "sk-fake-kimi", "Fe26.2**fake", "sk-fake-d2", "sk-fake-c"]))
+        byplat = {p["platform"]: p for p in mig["providers"]}
+        check("归并为 4 个平台（未知平台条目被跳过）",
+              sorted(byplat) == ["deepseek", "kimi-code", "opencode", "zhipu-glm"], json.dumps(sorted(byplat)))
+        check("未知平台跳过 WARN", "不在已知平台清单" in inst.log())
+        ds = byplat["deepseek"]
+        kk = {k["id"]: k for k in ds["access_keys"]}
+        check("同平台归并 2 个凭据", len(ds["access_keys"]) == 2, json.dumps(ds["access_keys"]))
+        check("enabled=false 导入并保持停用", kk["deepseek-key2"].get("enabled") is False)
+        check("停用凭据 token 仍加密落盘（不丢配置）", bool(kk["deepseek-key2"].get("token_cipher")))
         check("停用导入 INFO 日志", "保持停用" in inst.log())
-        check("kimi 自动改写 base_url", byid["moonshot"]["base_url"] == "https://api.kimi.com/coding/v1")
-        check("kimi paths 序保持", byid["moonshot"]["paths"] == ["/usages", "/me", "/models"])
-        check("opencode 改写官方用量接口", byid["opencode"]["base_url"] == "https://opencode.ai/zen/go/v1"
-              and byid["opencode"]["paths"] == ["/usage"]
-              and not byid["opencode"].get("token_cipher"))
+        check("凭据名剥平台前缀派生（DeepSeek 备用 → 备用）", kk["deepseek-key2"].get("name") == "备用",
+              json.dumps(kk["deepseek-key2"]))
+        check("kimi 路径收敛为预设 /usages", "收敛" in inst.log() and "/me" in inst.log())
+        check("opencode token 未迁移（Cookie 无法转 API Key）",
+              not byplat["opencode"]["access_keys"][0].get("token_cipher")
+              and "无法转换为 API Key" in inst.log())
+        check("落盘不再含 base_url/paths/auth_style",
+              not any(x in s for x in ["base_url", '"paths"', "auth_style"]))
         log = inst.log()
         check("迁移 INFO 对照日志", "迁移改写" in log and "api.kimi.com/coding/v1" in log and "zen/go/v1" in log)
-        check("opencode token 未迁移 WARN", "无法转换为 API Key" in log)
         check("迁移后为默认密码态（红 banner 条件）", "正在使用默认密码" in log)
     finally:
         inst.kill()
     return d
+
+
+def scenario_migrate_v3(binpath, mock):
+    """v0.2.x（version 3）→ v0.2.5（version 4）：本版本最主流的升级路径。
+
+    密文必须是真的（能解）才能验证「采集照常」——故先用被测程序自己 PUT 一份带 token 的 v4 配置
+    拿到密文，再把文件降级改写成 v3 形态（一 key 一 provider），重启验证迁移。
+    """
+    print("\n== 场景 8：v0.2.x → v0.2.5 配置迁移（一 key 一平台 → 一平台多凭据） ==")
+    d = tempfile.mkdtemp(prefix="qc-e2e-v3-")
+    port = free_port()
+    cfg = os.path.join(d, "config.json")
+    base = base_of(port)
+
+    # ① 借程序自身产出真密文
+    inst0 = Instance(binpath, cfg, port, upstream=mock.url())
+    try:
+        inst0.wait_ready()
+        _, hdr, _ = http("POST", base + "/api/login", {"password": "Quota@2026090S"})
+        cookie = re.search(r"qc_session=([^;]+)", hdr.get("Set-Cookie", "")).group(1)
+        auth = {"Cookie": "qc_session=" + cookie}
+        seed = {
+            "version": 4,
+            "listen": {"host": "127.0.0.1", "port": port},
+            "collector": {"interval_base_s": 30, "jitter_min_s": 5, "jitter_max_s": 25,
+                          "stagger_min_s": 1, "stagger_max_s": 5, "backoff_multiplier": 2, "backoff_max_s": 1800},
+            "auth": {"mode": "admin"},
+            "providers": [{"platform": "opencode",
+                           "access_keys": [{"id": "seed", "name": "seed", "token": "sk-v3-migrate-token"}]}],
+        }
+        code, _, _ = http("PUT", base + "/api/config", seed, auth)
+        check("准备阶段：PUT 成功（用于产出真密文）", code == 200)
+    finally:
+        inst0.kill()
+    with open(cfg, encoding="utf-8") as f:
+        seed_doc = json.load(f)
+    cipher = seed_doc["providers"][0]["access_keys"][0]["token_cipher"]
+    hash_before = seed_doc["auth"]["password_hash"]
+
+    # ② 降级改写成 v3 形态（同平台两条：一条启用、一条停用）
+    v3 = {
+        "version": 3,
+        "listen": {"host": "127.0.0.1", "port": port},
+        "collector": seed_doc["collector"],
+        "auth": seed_doc["auth"],
+        "providers": [
+            {"id": "opencode-m1", "name": "OpenCode M1", "base_url": "https://opencode.ai/zen/go/v1",
+             "paths": ["/usage"], "auth_style": "bearer", "extra_headers": {}, "token_cipher": cipher},
+            {"id": "opencode-m2", "name": "OpenCode M2", "base_url": "https://opencode.ai/zen/go/v1",
+             "paths": ["/usage"], "auth_style": "bearer", "extra_headers": {}, "token_cipher": cipher,
+             "enabled": False},
+        ],
+    }
+    with open(cfg, "w", encoding="utf-8") as f:
+        json.dump(v3, f, ensure_ascii=False)
+
+    # ③ 重启 → 迁移
+    inst = Instance(binpath, cfg, port, upstream=mock.url())
+    try:
+        inst.wait_ready()
+        with open(cfg, encoding="utf-8") as f:
+            mig = json.load(f)
+        check("v3 → v4 已升版", mig["version"] == 4)
+        check("listen/collector 原样保留",
+              mig["listen"]["host"] == "127.0.0.1" and mig["listen"]["port"] == port
+              and mig["collector"]["interval_base_s"] == 30)
+        check("密码 hash 原样保留（不重置）", mig["auth"]["password_hash"] == hash_before)
+        byplat = {p["platform"]: p for p in mig["providers"]}
+        check("归并为 1 个平台（opencode）", sorted(byplat) == ["opencode"], json.dumps(sorted(byplat)))
+        oc = byplat["opencode"]
+        keys = {k["id"]: k for k in oc["access_keys"]}
+        check("同平台两条合一（2 个凭据）", len(oc["access_keys"]) == 2, json.dumps(oc["access_keys"]))
+        check("凭据密文原样保留（不再二次加密）",
+              keys["opencode-m1"]["token_cipher"] == cipher and keys["opencode-m2"]["token_cipher"] == cipher)
+        check("enabled=false 保持停用", keys["opencode-m2"].get("enabled") is False)
+        check("凭据名剥平台前缀（M1/M2）",
+              keys["opencode-m1"].get("name") == "M1" and keys["opencode-m2"].get("name") == "M2")
+        check("归并 INFO 日志", "归并" in inst.log())
+        check("落盘不再含 base_url/paths/auth_style",
+              not any(x in json.dumps(mig) for x in ["base_url", '"paths"', "auth_style"]))
+        # 采集：迁移后的启用凭据照常出数（证明密文与预设地址都接得住）
+        snap = wait_snapshot(base, lambda s: {p["id"]: p for p in s["providers"]}.get(
+            "opencode.opencode-m1", {}).get("status") == "ok", timeout=30)
+        sp = {p["id"]: p for p in snap["providers"]}
+        check("迁移后启用凭据采集成功（密文可解 + 预设地址生效）",
+              sp["opencode.opencode-m1"]["status"] == "ok", json.dumps(sp.get("opencode.opencode-m1"))[:200])
+        check("迁移后停用凭据为 disabled", sp["opencode.opencode-m2"]["status"] == "disabled",
+              json.dumps(sp.get("opencode.opencode-m2"))[:200])
+    finally:
+        inst.kill()
+    return d
+
+
+def base_of(port):
+    return f"{BASE}:{port}"
 
 
 def scenario_lock(binpath, d, port, cfg, inst):
@@ -421,10 +541,10 @@ def scenario_graceful(binpath, d, port, cfg):
 
 
 def scenario_enabled_and_cache(binpath, d, port, cfg, mock):
-    """v0.2.4：enabled 停用（停采 + disabled 态）与 cache.json 上次成功数据（重启后 cached → ok）。"""
-    print("\n== 场景 7：enabled 停用 / cache.json 上次成功数据（v0.2.4） ==")
+    """v0.2.4/v0.2.5：凭据级 enabled 停用（停采 + disabled 态）、同平台多 Key、cache.json 重启恢复。"""
+    print("\n== 场景 7：多 Key 凭据级 enabled / cache.json 上次成功数据 ==")
     base = f"{BASE}:{port}"
-    inst = Instance(binpath, cfg, port)
+    inst = Instance(binpath, cfg, port, upstream=mock.url())
     try:
         inst.wait_ready()
         code, hdr, body = http("POST", base + "/api/login", {"password": "Quota@2026090S"})
@@ -432,46 +552,49 @@ def scenario_enabled_and_cache(binpath, d, port, cfg, mock):
         auth = {"Cookie": "qc_session=" + cookie}
 
         put = {
-            "version": 3,
+            "version": 4,
             "listen": {"host": "127.0.0.1", "port": port},
             "collector": {"interval_base_s": 30, "jitter_min_s": 5, "jitter_max_s": 25,
                           "stagger_min_s": 1, "stagger_max_s": 5, "backoff_multiplier": 2, "backoff_max_s": 1800},
             "auth": {"mode": "admin"},
             "providers": [
-                {"id": "onp", "name": "启用平台", "base_url": mock.url(),
-                 "paths": ["/q"], "auth_style": "bearer", "token": "«redacted:sk-onn»"},          # enabled 缺省 = 启用
-                {"id": "offp", "name": "停用平台", "base_url": mock.url(),
-                 "paths": ["/q"], "auth_style": "bearer", "enabled": False,
-                 "token": "«redacted:sk-off»"},
+                {"platform": "opencode", "access_keys": [
+                    {"id": "on", "name": "启用 Key", "token": "sk-fake-on-token"},      # enabled 缺省 = 启用
+                    {"id": "off", "name": "停用 Key", "enabled": False, "token": "sk-fake-off-token"},
+                ]},
             ],
         }
         code, _, _ = http("PUT", base + "/api/config", put, auth)
-        check("PUT（1 启用 + 1 停用）200", code == 200)
+        check("PUT（同平台 1 启用 + 1 停用）200", code == 200)
 
         code, _, view = http("GET", base + "/api/config", None, auth)
-        byid = {p["id"]: p for p in view["providers"]}
-        check("视图 enabled 往返（缺省 true / 显式 false）",
-              byid["onp"]["enabled"] is True and byid["offp"]["enabled"] is False, json.dumps(byid))
+        keys = {k["id"]: k for k in view["providers"][0]["access_keys"]}
+        check("视图凭据 enabled 往返（缺省 true / 显式 false）",
+              keys["on"]["enabled"] is True and keys["off"]["enabled"] is False, json.dumps(keys))
+        check("视图凭据名与 has_token", keys["on"]["name"] == "启用 Key" and keys["off"]["has_token"] is True)
         with open(cfg, encoding="utf-8") as f:
             raw = f.read()
-        check("停用平台落盘 enabled: false", '"enabled": false' in raw)
+        check("停用凭据落盘 enabled: false", '"enabled": false' in raw)
 
-        snap = wait_snapshot(base, lambda s: all(
-            p.get("status") not in ("failed",) or (p.get("error") or {}).get("code") != "NOT_COLLECTED_YET"
-            for p in s["providers"]), timeout=30)
+        # 两个 key 同平台：on 立即采集（偏移 0），off 停用不发请求
+        snap = wait_snapshot(base, lambda s: {p["id"]: p for p in s["providers"]}.get(
+            "opencode.on", {}).get("status") == "ok", timeout=30)
         sp = {p["id"]: p for p in snap["providers"]}
-        check("停用平台快照 status=disabled/DISABLED",
-              sp["offp"]["status"] == "disabled" and (sp["offp"].get("error") or {}).get("code") == "DISABLED",
-              json.dumps(sp.get("offp"))[:200])
+        check("运行时 ID = 平台.凭据（多条）",
+              sorted(sp) == ["opencode.off", "opencode.on"], json.dumps(sorted(sp)))
+        check("停用凭据快照 status=disabled/DISABLED",
+              sp["opencode.off"]["status"] == "disabled"
+              and (sp["opencode.off"].get("error") or {}).get("code") == "DISABLED",
+              json.dumps(sp.get("opencode.off"))[:200])
+        check("启用凭据正常采集", sp["opencode.on"]["status"] == "ok")
         hits_before = mock.hits
         sleep_until = time.time() + 5
         while time.time() < sleep_until:
             time.sleep(0.25)
-        check("停用平台不发请求（5s 内上游计数不变）", mock.hits == hits_before,
+        check("停用凭据不发请求（5s 内上游计数不变）", mock.hits == hits_before,
               f"{hits_before}→{mock.hits}")
-        check("启用平台正常采集", sp["onp"]["status"] == "ok")
 
-        # cache.json：白名单 + 内容（只含启用平台的成功数据、无 token）
+        # cache.json：白名单 + 内容（只含启用凭据的成功数据、无 token）
         cache_path = os.path.join(d, "cache.json")
         t0 = time.time()
         while time.time() - t0 < 5 and not os.path.exists(cache_path):
@@ -480,7 +603,7 @@ def scenario_enabled_and_cache(binpath, d, port, cfg, mock):
         with open(cache_path, encoding="utf-8") as f:
             cache = json.load(f)
         cids = [e["id"] for e in cache["providers"]]
-        check("缓存只含成功平台（停用平台不入档）", cids == ["onp"], json.dumps(cids))
+        check("缓存只含成功凭据（停用凭据不入档）", cids == ["opencode.on"], json.dumps(cids))
         check("缓存无 token/密文", "token" not in json.dumps(cache) and "cipher" not in json.dumps(cache))
         cached_at = cache["providers"][0]["last_success_at"]
         files = sorted(os.listdir(d))
@@ -493,37 +616,38 @@ def scenario_enabled_and_cache(binpath, d, port, cfg, mock):
         # 重启：首屏应为 cached（上游故意慢），首轮采集后转 ok
         inst.kill()
         mock.delay = 8.0
-        inst2 = Instance(binpath, cfg, port)
+        inst2 = Instance(binpath, cfg, port, upstream=mock.url())
         try:
             inst2.wait_ready()
             _, _, s0 = http("GET", base + "/api/quotas")
             p0 = {p["id"]: p for p in s0["providers"]}
             check("重启首屏 status=cached（不回到等待首次采集）",
-                  p0["onp"]["status"] == "cached", json.dumps(p0.get("onp"))[:200])
-            check("缓存态保留原 last_success_at", p0["onp"]["last_success_at"] == cached_at,
-                  f"{cached_at} vs {p0['onp']['last_success_at']}")
-            check("停用平台重启后仍为 disabled", p0["offp"]["status"] == "disabled")
+                  p0["opencode.on"]["status"] == "cached", json.dumps(p0.get("opencode.on"))[:200])
+            check("缓存态保留原 last_success_at", p0["opencode.on"]["last_success_at"] == cached_at,
+                  f"{cached_at} vs {p0['opencode.on']['last_success_at']}")
+            check("停用凭据重启后仍为 disabled", p0["opencode.off"]["status"] == "disabled")
             s1 = wait_snapshot(base, lambda s: all(p.get("status") != "cached" for p in s["providers"]), timeout=30)
             p1 = {p["id"]: p for p in s1["providers"]}
-            check("首轮采集成功后转 ok", p1["onp"]["status"] == "ok", json.dumps(p1.get("onp"))[:200])
+            check("首轮采集成功后转 ok", p1["opencode.on"]["status"] == "ok",
+                  json.dumps(p1.get("opencode.on"))[:200])
         finally:
             inst2.kill()
         mock.delay = 0.0
 
-        # 启用原停用平台 → 立刻进入采集
-        inst3 = Instance(binpath, cfg, port)
+        # 启用原停用凭据 → 进入采集（同平台第二个 key 的槽位在 +15s，故给足超时）
+        inst3 = Instance(binpath, cfg, port, upstream=mock.url())
         try:
             inst3.wait_ready()
-            put["providers"][1]["enabled"] = True
+            put["providers"][0]["access_keys"][1]["enabled"] = True
             code, _, _ = http("PUT", base + "/api/config", put, auth)
             check("勾选启用 PUT 200", code == 200)
             h0 = mock.hits
-            s2 = wait_snapshot(base, lambda s: all(p.get("status") == "ok" for p in s["providers"]), timeout=40)
+            s2 = wait_snapshot(base, lambda s: all(p.get("status") == "ok" for p in s["providers"]), timeout=60)
             p2 = {p["id"]: p for p in s2["providers"]}
-            check("重新启用后开始采集（两平台均 ok）",
-                  p2["onp"]["status"] == "ok" and p2["offp"]["status"] == "ok",
+            check("重新启用后两条凭据均 ok（同平台等分错峰）",
+                  p2["opencode.on"]["status"] == "ok" and p2["opencode.off"]["status"] == "ok",
                   json.dumps({k: v["status"] for k, v in p2.items()}))
-            check("上游确实收到新平台的请求", mock.hits > h0, f"{h0}→{mock.hits}")
+            check("上游确实收到新凭据的请求", mock.hits > h0, f"{h0}→{mock.hits}")
         finally:
             inst3.kill()
     finally:
@@ -550,7 +674,7 @@ def main():
     binpath = os.path.abspath(BIN)
     mock = MockUpstream()
     try:
-        d, port, cfg, inst = scenario_first_start(binpath)
+        d, port, cfg, inst = scenario_first_start(binpath, mock)
         try:
             scenario_api_chain(d, port, cfg, inst, mock)
             scenario_log_redaction(inst, cfg)
@@ -560,6 +684,7 @@ def main():
             inst.kill()
         scenario_graceful(binpath, d, port, cfg)
         scenario_migration(binpath, mock)
+        scenario_migrate_v3(binpath, mock)
         scenario_enabled_and_cache(binpath, d, port, cfg, mock)
         scenario_startup_time(binpath)
     finally:

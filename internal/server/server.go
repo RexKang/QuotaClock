@@ -427,17 +427,27 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	if s.onChanged != nil {
 		s.onChanged(runtime)
 	}
-	logx.Infof("配置已保存并热生效（%d 个平台，listen %s:%d）", len(newFile.Providers), newFile.Listen.Host, newFile.Listen.Port)
+	keys := 0
+	for i := range newFile.Providers {
+		keys += newFile.Providers[i].KeyCount()
+	}
+	logx.Infof("配置已保存并热生效（%d 个平台 / %d 个 API Key，listen %s:%d）",
+		len(newFile.Providers), keys, newFile.Listen.Host, newFile.Listen.Port)
 	writeOK(w)
 }
 
 // mergeForSave 把 PUT 请求体合并为新的落盘形态：
-// token 空 = 保留原 cipher（改名/paths 保存不会误清 token）；非空 = 新明文加密替换 + 重算掩码 hint。
+// token 空 = 保留原 cipher（改凭据名/停用不影响 token）；非空 = 新明文加密替换 + 重算掩码 hint。
+// 凭据身份 = <platform>.<keyID>：keyID 变了视为新凭据（不继承 token），与旧版「改 id 即新平台」语义一致。
 // auth.password 空 = 保留原 hash；非空 = bcrypt 新 hash。
 func (s *Server) mergeForSave(old *config.File, put *config.Put) (*config.File, map[string]string, error) {
-	oldByID := map[string]*config.FileProvider{}
+	oldKeys := map[string]config.AccessKey{}
 	for i := range old.Providers {
-		oldByID[old.Providers[i].ID] = &old.Providers[i]
+		fp := &old.Providers[i]
+		for j := range fp.AccessKeys {
+			k := fp.AccessKeys[j]
+			oldKeys[config.RuntimeID(fp.Platform, k.ID)] = k
+		}
 	}
 	newFile := &config.File{
 		Version:   config.CurrentVersion,
@@ -457,29 +467,34 @@ func (s *Server) mergeForSave(old *config.File, put *config.Put) (*config.File, 
 	for i := range put.Providers {
 		pp := &put.Providers[i]
 		fp := config.FileProvider{
-			ID:           pp.ID,
-			Name:         pp.Name,
-			BaseURL:      pp.BaseURL,
-			Paths:        append([]string(nil), pp.Paths...),
-			AuthStyle:    pp.AuthStyle,
-			ExtraHeaders: pp.ExtraHeaders,
-			Enabled:      config.CopyBoolPtr(pp.Enabled),
+			Platform:   pp.Platform,
+			AccessKeys: make([]config.AccessKey, 0, len(pp.AccessKeys)),
 		}
-		switch {
-		case pp.Token != "":
-			cipher, err := crypto.SealToken(s.key, pp.Token)
-			if err != nil {
-				return nil, nil, err
+		for j := range pp.AccessKeys {
+			pk := &pp.AccessKeys[j]
+			id := config.RuntimeID(pp.Platform, pk.ID)
+			ak := config.AccessKey{
+				ID:      pk.ID,
+				Name:    pk.Name,
+				Enabled: config.CopyBoolPtr(pk.Enabled),
 			}
-			fp.TokenCipher = cipher
-			masks[fp.ID] = crypto.Mask(pp.Token)
-		default:
-			if o := oldByID[pp.ID]; o != nil {
-				fp.TokenCipher = o.TokenCipher
-				if m := (*s.masks.Load())[o.ID]; m != "" {
-					masks[fp.ID] = m
+			switch {
+			case pk.Token != "":
+				cipher, err := crypto.SealToken(s.key, pk.Token)
+				if err != nil {
+					return nil, nil, err
+				}
+				ak.TokenCipher = cipher
+				masks[id] = crypto.Mask(pk.Token)
+			default:
+				if o, ok := oldKeys[id]; ok {
+					ak.TokenCipher = o.TokenCipher
+					if m := (*s.masks.Load())[id]; m != "" {
+						masks[id] = m
+					}
 				}
 			}
+			fp.AccessKeys = append(fp.AccessKeys, ak)
 		}
 		newFile.Providers = append(newFile.Providers, fp)
 	}
@@ -518,7 +533,7 @@ func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfg.Load()
 	p := cfg.Provider(req.ProviderID)
 	if p == nil {
-		writeErr(w, http.StatusBadRequest, "PROVIDER_NOT_FOUND", "平台不存在："+req.ProviderID)
+		writeErr(w, http.StatusBadRequest, "PROVIDER_NOT_FOUND", "未找到该平台凭据："+req.ProviderID)
 		return
 	}
 	if len(p.Paths) == 0 {

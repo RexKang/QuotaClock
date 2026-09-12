@@ -63,7 +63,9 @@ func RestoreFromCache(c *persist.Cache, cfg *config.Runtime) []ProviderState {
 			logx.Warnf("缓存项 %s 的时间戳无法解析（%q），跳过恢复", e.ID, e.LastSuccessAt)
 			continue
 		}
-		at := ts.UTC()
+		// 保留原时区（v0.2.5：时间戳按当地时区展示；此处若强制 UTC，重启后同一次成功
+		// 采集的时间会从「19:35:52+08:00」变成「11:35:52Z」，与实时态不一致）
+		at := ts
 		name := e.Name
 		if name == "" {
 			name = p.Name

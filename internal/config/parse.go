@@ -6,8 +6,12 @@ import (
 	"fmt"
 )
 
-// putWire 是 PUT 请求体的完整 wire 形态：包含计算字段（剥离忽略）与敏感字段（出现即 400），
+// putWire 是 PUT 请求体的完整 wire 形态：包含计算/只读字段（剥离忽略）与敏感字段（出现即 400），
 // 以便 DisallowUnknownFields 的同时仍能识别这两类特殊字段。
+//
+// v0.2.5：base_url / paths / auth_style / extra_headers 由平台预设派生，**不是可配置项**；
+// 但 GET 响应会把它们（连同 platform_name）带给前端展示，整体回传时必然出现，
+// 故一律容忍并剥离——平台预设是唯一真源，回传值不参与任何判断。
 type putWire struct {
 	Version   int           `json:"version"`
 	Listen    Listen        `json:"listen"`
@@ -25,21 +29,31 @@ type putAuthWire struct {
 }
 
 type putProvWire struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	BaseURL      string            `json:"base_url"`
-	Paths        []string          `json:"paths"`
+	Platform   string       `json:"platform"`
+	AccessKeys []putKeyWire `json:"access_keys"`
+	// 只读/派生字段：容忍并剥离（见类型注释）
+	PlatformName string            `json:"platform_name,omitempty"`
+	BaseURL      string            `json:"base_url,omitempty"`
+	Paths        []string          `json:"paths,omitempty"`
 	AuthStyle    string            `json:"auth_style,omitempty"`
 	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
-	Token        string            `json:"token,omitempty"`
-	Enabled      *bool             `json:"enabled,omitempty"`      // v0.2.4：nil = 启用（兼容旧客户端不传）
-	TokenCipher  string            `json:"token_cipher,omitempty"` // 敏感字段：出现即 400
-	HasToken     bool              `json:"has_token"`              // 计算字段：剥离
-	TokenMasked  string            `json:"token_masked,omitempty"` // 计算字段：剥离
+	ID           string            `json:"id,omitempty"`
+	Name         string            `json:"name,omitempty"`
+	// 敏感字段：出现即 400
+	TokenCipher string `json:"token_cipher,omitempty"`
+}
+
+type putKeyWire struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Token       string `json:"token,omitempty"`
+	Enabled     *bool  `json:"enabled,omitempty"`
+	HasToken    bool   `json:"has_token"`              // 计算字段：剥离
+	TokenMasked string `json:"token_masked,omitempty"` // 计算字段：剥离
 }
 
 // ParsePut 解析 PUT /api/config 请求体。
-// 解析门顺序（设计 §5.3）：JSON 可解析（DisallowUnknownFields）→ 剥离计算字段 → 拒绝敏感字段。
+// 解析门顺序（设计 §5.3）：JSON 可解析（DisallowUnknownFields）→ 剥离计算/只读字段 → 拒绝敏感字段。
 // 返回的 error 已带 field 定位，由 handler 包装为 400 details[]。
 func ParsePut(body []byte) (*Put, error) {
 	dec := json.NewDecoder(bytes.NewReader(body))
@@ -62,16 +76,17 @@ func ParsePut(body []byte) (*Put, error) {
 		if wp.TokenCipher != "" {
 			return nil, fmt.Errorf("providers[%d].token_cipher: 禁止直写敏感字段", i)
 		}
-		p.Providers = append(p.Providers, PutProvider{
-			ID:           wp.ID,
-			Name:         wp.Name,
-			BaseURL:      wp.BaseURL,
-			Paths:        wp.Paths,
-			AuthStyle:    wp.AuthStyle,
-			ExtraHeaders: wp.ExtraHeaders,
-			Token:        wp.Token,
-			Enabled:      wp.Enabled,
-		})
+		pp := PutProvider{Platform: wp.Platform}
+		for j := range wp.AccessKeys {
+			wk := &wp.AccessKeys[j]
+			pp.AccessKeys = append(pp.AccessKeys, PutAccessKey{
+				ID:      wk.ID,
+				Name:    wk.Name,
+				Token:   wk.Token,
+				Enabled: wk.Enabled,
+			})
+		}
+		p.Providers = append(p.Providers, pp)
 	}
 	return p, nil
 }

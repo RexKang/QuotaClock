@@ -16,10 +16,12 @@ type LoadState int
 const (
 	// StateCreatedTemplate 首次启动无配置，已生成模板文件。
 	StateCreatedTemplate LoadState = iota
-	// StateOK 正常加载 version 3 配置。
+	// StateOK 正常加载当前版本配置。
 	StateOK
-	// StateNeedsMigration 检测到 version 2（v0.1），Raw 保留原文待迁移（迁移需先有 key.bin）。
+	// StateNeedsMigration 检测到 version 2（v0.1），Raw 保留原文待迁移。
 	StateNeedsMigration
+	// StateNeedsMigrationV3 检测到 version 3（v0.2.0~v0.2.4），Raw 保留原文待迁移到 v0.2.5 结构。
+	StateNeedsMigrationV3
 )
 
 // LoadResult 配置加载结果。
@@ -76,10 +78,14 @@ func LoadFile(path string) (*LoadResult, error) {
 		if !hasVersion {
 			return nil, &BadConfigError{Path: path, Msg: "缺少 version 字段"}
 		}
-		if version != 2 {
-			return nil, &BadConfigError{Path: path, Msg: fmt.Sprintf("version %d 不受支持（仅支持 2=v0.1 迁移或 3）", version)}
+		switch version {
+		case 2:
+			return &LoadResult{State: StateNeedsMigration, Raw: raw}, nil
+		case 3:
+			return &LoadResult{State: StateNeedsMigrationV3, Raw: raw}, nil
+		default:
+			return nil, &BadConfigError{Path: path, Msg: fmt.Sprintf("version %d 不受支持（支持 2=v0.1、3=v0.2.x 迁移，或 %d）", version, config.CurrentVersion)}
 		}
-		return &LoadResult{State: StateNeedsMigration, Raw: raw}, nil
 	}
 	if version > config.CurrentVersion {
 		return nil, &BadConfigError{Path: path, Msg: "配置来自更新版本程序，请升级 QuotaClock"}

@@ -76,7 +76,7 @@ func TestTemplate(t *testing.T) { // C-per-04
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tpl.Version != 3 {
+	if tpl.Version != config.CurrentVersion {
 		t.Fatalf("version = %d", tpl.Version)
 	}
 	if tpl.Listen != config.DefaultListen() || tpl.Collector != config.DefaultCollector() {
@@ -99,12 +99,12 @@ func writeConfig(t *testing.T, dir, content string) string {
 	return p
 }
 
-func TestLoadFileVersion4Rejected(t *testing.T) { // C-per-05
+func TestLoadFileFutureVersionRejected(t *testing.T) { // C-per-05
 	dir := t.TempDir()
-	p := writeConfig(t, dir, `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[]}`)
+	p := writeConfig(t, dir, `{"version":5,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[]}`)
 	_, err := LoadFile(p)
 	if err == nil {
-		t.Fatal("version=4 应拒绝")
+		t.Fatal("version=5 应拒绝")
 	}
 	if !strings.Contains(err.Error(), "更新版本程序") || !strings.Contains(err.Error(), p) {
 		t.Fatalf("错误应含指定文案与路径: %v", err)
@@ -118,13 +118,14 @@ func TestLoadFileBadConfigs(t *testing.T) { // C-per-06
 		content string
 		want    string
 	}{
-		{"JSON 断裂", `{"version":3,`, "JSON 解析失败"},
+		{"JSON 断裂", `{"version":4,`, "JSON 解析失败"},
 		{"缺 version", `{"listen":{"host":"127.0.0.1","port":1},"auth":{"mode":"admin"}}`, "缺少 version"},
 		{"version 1", `{"version":1}`, "不受支持"},
-		{"未知字段", `{"version":3,"foo":1}`, "未知字段"},
-		{"R4 违例", `{"version":3,"listen":{"host":"127.0.0.1","port":1},"collector":{"interval_base_s":10},"auth":{"mode":"admin"},"providers":[]}`, "interval_base_s"},
-		{"R9 违例", `{"version":3,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"su"},"providers":[]}`, "auth.mode"},
-		{"R11 违例", `{"version":3,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"id":"a","base_url":"notaurl","paths":["/"]}]}`, "base_url"},
+		{"未知字段", `{"version":4,"foo":1}`, "未知字段"},
+		{"R4 违例", `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{"interval_base_s":10},"auth":{"mode":"admin"},"providers":[]}`, "interval_base_s"},
+		{"R9 违例", `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"su"},"providers":[]}`, "auth.mode"},
+		{"R11 平台白名单", `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"not-a-platform","access_keys":[{"id":"k1"}]}]}`, "platform"},
+		{"R12 空凭据列表", `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"deepseek","access_keys":[]}]}`, "access_keys"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -162,6 +163,7 @@ func TestLoadFileMissingCreatesTemplate(t *testing.T) { // 首启模板（唯一
 
 func TestLoadFileNeedsMigration(t *testing.T) {
 	dir := t.TempDir()
+	// v0.1（version 2）→ 走 MigrateV1
 	p := writeConfig(t, dir, `{"version":2,"providers":[]}`)
 	res, err := LoadFile(p)
 	if err != nil {
@@ -169,6 +171,15 @@ func TestLoadFileNeedsMigration(t *testing.T) {
 	}
 	if res.State != StateNeedsMigration || len(res.Raw) == 0 {
 		t.Fatalf("state = %v", res.State)
+	}
+	// v0.2.x（version 3）→ 走 MigrateV3
+	p3 := writeConfig(t, dir, `{"version":3,"listen":{"host":"127.0.0.1","port":8787},"collector":{},"auth":{"mode":"admin"},"providers":[]}`)
+	res3, err := LoadFile(p3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res3.State != StateNeedsMigrationV3 || len(res3.Raw) == 0 {
+		t.Fatalf("state = %v", res3.State)
 	}
 }
 
@@ -188,9 +199,9 @@ func TestWriteWhitelist(t *testing.T) { // C-per-07（进程内近似审计：�
 	}
 	// 3) 保存配置（PUT 等价路径）
 	f := res.File
-	f.Providers = append(f.Providers, config.FileProvider{ID: "x", Name: "X", BaseURL: "https://x.com", Paths: []string{"/"}})
+	f.Providers = append(f.Providers, config.FileProvider{Platform: "opencode", AccessKeys: []config.AccessKey{{ID: "k1", Name: "A1"}}})
 	cipher, _ := crypto.SealToken(key, "sk-test")
-	f.Providers[0].TokenCipher = cipher
+	f.Providers[0].AccessKeys[0].TokenCipher = cipher
 	if err := SaveConfig(cfgPath, f); err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +255,7 @@ func TestMigrationFullChain(t *testing.T) { // C-per-08：FX-2 → 迁移 → �
 	if strings.Contains(s, "sk-kimi-test") || strings.Contains(s, "sk-z") {
 		t.Fatal("config.json 含明文 token")
 	}
-	if !strings.Contains(s, `"version": 3`) || !strings.Contains(s, "api.kimi.com/coding/v1") {
+	if !strings.Contains(s, `"version": 4`) || !strings.Contains(s, `"platform": "kimi-code"`) {
 		t.Fatalf("迁移结果不完整: %s", s)
 	}
 	// 兜底 provider（9000 端口）已跳过，启动可用

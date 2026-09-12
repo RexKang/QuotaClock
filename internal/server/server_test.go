@@ -283,20 +283,43 @@ func TestSessionRoundTripAndLogout(t *testing.T) { // C-srv-04/05
 }
 
 // validPutBody 构造合法 PUT 请求体（基于当前 env 配置）。
+// v0.2.5：provider 只含 platform + access_keys（回传凭据时不带 token = 保留原值）。
 func validPutBody(env *testEnv) map[string]any {
 	f := env.srv.file.Load()
 	body := map[string]any{
-		"version":   3,
+		"version":   config.CurrentVersion,
 		"listen":    map[string]any{"host": f.Listen.Host, "port": f.Listen.Port},
 		"collector": f.Collector,
 		"auth":      map[string]any{"mode": f.Auth.Mode},
 		"providers": []any{},
 	}
 	for _, p := range f.Providers {
+		keys := []any{}
+		for _, k := range p.AccessKeys {
+			keys = append(keys, map[string]any{"id": k.ID, "name": k.Name})
+		}
 		body["providers"] = append(body["providers"].([]any), map[string]any{
-			"id": p.ID, "name": p.Name, "base_url": p.BaseURL, "paths": p.Paths,
+			"platform": p.Platform, "access_keys": keys,
 		})
 	}
+	return body
+}
+
+// putOneKey 用「单平台单凭据」PUT 覆盖 providers 段（测试主体），保持 listen/collector/auth 合法。
+// platform/key/token 为空时给默认值；token 为空表示保留。
+func putOneKey(env *testEnv, platform, keyID, keyName, token string) map[string]any {
+	body := validPutBody(env)
+	if platform == "" {
+		platform = "opencode"
+	}
+	if keyID == "" {
+		keyID = "a"
+	}
+	k := map[string]any{"id": keyID, "name": keyName}
+	if token != "" {
+		k["token"] = token
+	}
+	body["providers"] = []any{map[string]any{"platform": platform, "access_keys": []any{k}}}
 	return body
 }
 
@@ -308,7 +331,7 @@ func TestPutValidationDetails(t *testing.T) { // C-srv-06
 	body := validPutBody(env)
 	body["listen"] = map[string]any{"host": "bad-host", "port": 70000}
 	body["providers"] = []any{
-		map[string]any{"id": "", "base_url": "ftp://x", "paths": []string{}},
+		map[string]any{"platform": "", "access_keys": []any{}},
 	}
 	code, m, _ := env.doJSON("PUT", "/api/config", body, authHdr(ck))
 	if code != 400 {
@@ -325,7 +348,8 @@ func TestPutValidationDetails(t *testing.T) { // C-srv-06
 func TestGetConfigMasking(t *testing.T) { // C-srv-07 + C-config-17/18
 	env := newEnv(t, func(key []byte, f *config.File) {
 		cipher, _ := crypto.SealToken(key, "abcd1234")
-		f.Providers = append(f.Providers, config.FileProvider{ID: "a", Name: "A", BaseURL: "https://x.com", Paths: []string{"/"}, TokenCipher: cipher})
+		f.Providers = append(f.Providers, config.FileProvider{Platform: "opencode",
+			AccessKeys: []config.AccessKey{{ID: "k1", Name: "A1", TokenCipher: cipher}}})
 	})
 	// 未登录
 	code, m, resp := env.doJSON("GET", "/api/config", nil, nil)
@@ -411,7 +435,8 @@ func TestCORSSecurityHeaders(t *testing.T) { // C-srv-08/09
 
 func TestAPI(t *testing.T) { // C-srv-10 临时 token 不落盘 + C-srv-11 502 纪律 + C-srv-12 静态页
 	env := newEnv(t, func(key []byte, f *config.File) {
-		f.Providers = append(f.Providers, config.FileProvider{ID: "a", Name: "A", BaseURL: "%UPSTREAM%", Paths: []string{"/balance"}})
+		f.Providers = append(f.Providers, config.FileProvider{Platform: "opencode",
+			AccessKeys: []config.AccessKey{{ID: "a", Name: "A"}}})
 	})
 	// 静态页
 	resp := env.do("GET", "/", nil, nil)
@@ -431,12 +456,12 @@ func TestAPI(t *testing.T) { // C-srv-10 临时 token 不落盘 + C-srv-11 502 �
 		_, _ = io.WriteString(w, `{"success":true}`)
 	}))
 	defer up.Close()
-	setProviderBaseURL(t, env, "a", up.URL)
+	setUpstream(t, env, up.URL)
 	afterSetup, _ := os.ReadFile(env.configPath)
 	if !bytes.Equal(before, afterSetup) {
 		t.Fatal("内存修改不应落盘（测试前提）")
 	}
-	code, m, _ := env.doJSON("POST", "/api/test", map[string]any{"provider_id": "a", "token": "test-token-plain"}, authHdr(ck))
+	code, m, _ := env.doJSON("POST", "/api/test", map[string]any{"provider_id": "opencode.a", "token": "test-token-plain"}, authHdr(ck))
 	if code != 200 || m["ok"] != true || m["latency_ms"] == nil {
 		t.Fatalf("test 应 200: %d %v", code, m)
 	}
@@ -458,8 +483,8 @@ func TestAPI(t *testing.T) { // C-srv-10 临时 token 不落盘 + C-srv-11 502 �
 		_, _ = io.WriteString(w, `{"msg":"deny-all"}`)
 	}))
 	defer up2.Close()
-	setProviderBaseURL(t, env, "a", up2.URL)
-	code, m, _ = env.doJSON("POST", "/api/test", map[string]any{"provider_id": "a", "token": "test-token-plain"}, authHdr(ck))
+	setUpstream(t, env, up2.URL)
+	code, m, _ = env.doJSON("POST", "/api/test", map[string]any{"provider_id": "opencode.a", "token": "test-token-plain"}, authHdr(ck))
 	if code != 502 || codeOf(m) != "UPSTREAM_ERROR" {
 		t.Fatalf("上游失败应 502: %d %v", code, m)
 	}
@@ -473,18 +498,12 @@ func TestAPI(t *testing.T) { // C-srv-10 临时 token 不落盘 + C-srv-11 502 �
 	}
 }
 
-func setProviderBaseURL(t *testing.T, env *testEnv, id, url string) {
+// setUpstream 把采集上游指向 mock（v0.2.5：平台地址由预设内置，测试通过环境开关覆盖 origin）。
+func setUpstream(t *testing.T, env *testEnv, url string) {
 	t.Helper()
+	t.Setenv(config.EnvUpstreamOverride, url)
 	f := env.srv.file.Load()
-	nf := *f
-	nf.Providers = append([]config.FileProvider(nil), f.Providers...)
-	for i := range nf.Providers {
-		if nf.Providers[i].ID == id {
-			nf.Providers[i].BaseURL = url
-		}
-	}
-	env.srv.file.Store(&nf)
-	runtime := config.BuildRuntime(&nf, env.key)
+	runtime := config.BuildRuntime(f, env.key)
 	env.srv.cfg.Store(runtime)
 	env.sched.Reload(runtime)
 }
@@ -562,13 +581,15 @@ func TestPasswordChangeHotReload(t *testing.T) { // C-srv-14
 func TestPutTokenMerge(t *testing.T) { // C-config-19/20
 	env := newEnv(t, func(key []byte, f *config.File) {
 		cipher, _ := crypto.SealToken(key, "orig-token-9999")
-		f.Providers = append(f.Providers, config.FileProvider{ID: "a", Name: "A", BaseURL: "https://x.com", Paths: []string{"/"}, TokenCipher: cipher})
+		f.Providers = append(f.Providers, config.FileProvider{Platform: "opencode",
+			AccessKeys: []config.AccessKey{{ID: "a", Name: "A", TokenCipher: cipher}}})
 	})
 	ck := env.login(config.DefaultPassword)
 	before, _ := os.ReadFile(env.configPath)
 	// PUT 不带 token（改名）→ cipher 保留
 	body := validPutBody(env)
-	body["providers"] = []any{map[string]any{"id": "a", "name": "A2", "base_url": "https://x.com", "paths": []string{"/"}}}
+	body["providers"] = []any{map[string]any{"platform": "opencode",
+		"access_keys": []any{map[string]any{"id": "a", "name": "A2"}}}}
 	if code, _, _ := env.doJSON("PUT", "/api/config", body, authHdr(ck)); code != 200 {
 		t.Fatalf("改名 PUT = %d", code)
 	}
@@ -577,12 +598,13 @@ func TestPutTokenMerge(t *testing.T) { // C-config-19/20
 		t.Fatal("改名应已写盘")
 	}
 	rt := env.srv.cfg.Load()
-	if rt.Provider("a").Token != "orig-token-9999" {
-		t.Fatalf("空 token 应保留原值: %q", rt.Provider("a").Token)
+	if rt.Provider("opencode.a").Token != "orig-token-9999" {
+		t.Fatalf("空 token 应保留原值: %q", rt.Provider("opencode.a").Token)
 	}
 	// PUT 新 token → 更新 + 掩码重算 + 明文不留痕
 	body2 := validPutBody(env)
-	body2["providers"] = []any{map[string]any{"id": "a", "name": "A2", "base_url": "https://x.com", "paths": []string{"/"}, "token": "new-token-7777"}}
+	body2["providers"] = []any{map[string]any{"platform": "opencode",
+		"access_keys": []any{map[string]any{"id": "a", "name": "A2", "token": "new-token-7777"}}}}
 	if code, _, _ := env.doJSON("PUT", "/api/config", body2, authHdr(ck)); code != 200 {
 		t.Fatalf("新 token PUT = %d", code)
 	}
@@ -590,10 +612,10 @@ func TestPutTokenMerge(t *testing.T) { // C-config-19/20
 	if strings.Contains(string(b), "new-token-7777") || strings.Contains(string(b), "orig-token-9999") {
 		t.Fatal("明文 token 落盘")
 	}
-	if got := env.srv.cfg.Load().Provider("a").Token; got != "new-token-7777" {
+	if got := env.srv.cfg.Load().Provider("opencode.a").Token; got != "new-token-7777" {
 		t.Fatalf("新 token 未生效: %q", got)
 	}
-	if got := (*env.srv.masks.Load())["a"]; got != "ne****77" {
+	if got := (*env.srv.masks.Load())["opencode.a"]; got != "ne****77" {
 		t.Fatalf("掩码 hint 未重算: %q", got)
 	}
 }
@@ -610,8 +632,7 @@ func TestIntegrationAdminChain(t *testing.T) { // I-1
 	// 登录
 	ck := env.login(config.DefaultPassword)
 	// GET（掩码在——配置里还没有 token，先 PUT 一个）
-	body := validPutBody(env)
-	body["providers"] = []any{map[string]any{"id": "a", "name": "A", "base_url": "https://x.com", "paths": []string{"/"}, "token": "tok-12345678"}}
+	body := putOneKey(env, "opencode", "a", "A", "tok-12345678")
 	if code, _, _ := env.doJSON("PUT", "/api/config", body, authHdr(ck)); code != 200 {
 		t.Fatal("PUT token 失败")
 	}
@@ -620,8 +641,7 @@ func TestIntegrationAdminChain(t *testing.T) { // I-1
 		t.Fatalf("登录后 GET 应含掩码: %s", mustJSON(m2))
 	}
 	// PUT 改名（空 token 保留）
-	body2 := validPutBody(env)
-	body2["providers"] = []any{map[string]any{"id": "a", "name": "A-renamed", "base_url": "https://x.com", "paths": []string{"/"}}}
+	body2 := putOneKey(env, "opencode", "a", "A-renamed", "")
 	if code, _, _ := env.doJSON("PUT", "/api/config", body2, authHdr(ck)); code != 200 {
 		t.Fatal("改名失败")
 	}
@@ -644,9 +664,8 @@ func TestIntegrationHotReload(t *testing.T) { // I-2
 	env := newEnv(t, nil)
 	ck := env.login(config.DefaultPassword)
 	rev0 := env.store.Get().Revision
-	// PUT 增加一个 provider
-	body := validPutBody(env)
-	body["providers"] = []any{map[string]any{"id": "a", "name": "A", "base_url": "https://x.com", "paths": []string{"/"}}}
+	// PUT 增加一个平台
+	body := putOneKey(env, "opencode", "a", "A", "")
 	if code, _, _ := env.doJSON("PUT", "/api/config", body, authHdr(ck)); code != 200 {
 		t.Fatal("PUT 失败")
 	}
@@ -654,7 +673,7 @@ func TestIntegrationHotReload(t *testing.T) { // I-2
 	if snap.Revision <= rev0 {
 		t.Fatalf("结构变化应推 revision: %d → %d", rev0, snap.Revision)
 	}
-	if len(snap.Providers) != 1 || snap.Providers[0].ID != "a" {
+	if len(snap.Providers) != 1 || snap.Providers[0].ID != "opencode.a" {
 		t.Fatalf("结构未更新: %+v", snap.Providers)
 	}
 	if snap.Providers[0].Status != collector.StatusFailed || snap.Providers[0].Error.Code != collector.CodeNotCollectedYet {
@@ -760,7 +779,7 @@ func TestIntegrationCollectSnapshot(t *testing.T) { // I-3
 func mkRuntime(providers ...*config.RuntimeProvider) *config.Runtime {
 	c := config.DefaultCollector()
 	return &config.Runtime{
-		Version: 3, Listen: config.DefaultListen(), Collector: c,
+		Version: config.CurrentVersion, Listen: config.DefaultListen(), Collector: c,
 		AuthMode: config.AuthModeAdmin, Providers: providers,
 	}
 }

@@ -87,7 +87,8 @@ func main() {
 	}
 
 	file := res.File
-	if res.State == persist.StateNeedsMigration {
+	switch res.State {
+	case persist.StateNeedsMigration:
 		migrated, logs, merr := config.MigrateV1(res.Raw, func(plain string) (string, error) {
 			return crypto.SealToken(key, plain)
 		})
@@ -101,7 +102,20 @@ func main() {
 			fatal("迁移配置写盘失败: %v", err)
 		}
 		file = migrated
-		logx.Infof("v0.1 配置迁移完成，已升版至 version 3 → %s", absPath)
+		logx.Infof("v0.1 配置迁移完成，已升版至 version %d → %s", config.CurrentVersion, absPath)
+	case persist.StateNeedsMigrationV3:
+		migrated, logs, merr := config.MigrateV3(res.Raw)
+		if merr != nil {
+			fatal("%v", merr)
+		}
+		for _, line := range logs {
+			logLine(line)
+		}
+		if err := persist.SaveConfig(absPath, migrated); err != nil {
+			fatal("迁移配置写盘失败: %v", err)
+		}
+		file = migrated
+		logx.Infof("配置迁移完成（v0.2.x → v0.2.5 平台预设结构），已升版至 version %d → %s", config.CurrentVersion, absPath)
 	}
 
 	// -interval / -addr / -port 覆盖（flag > config）

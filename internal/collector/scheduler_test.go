@@ -136,8 +136,10 @@ func TestConcurrentNotSerial(t *testing.T) {
 	defer srv.Close()
 
 	provs := []*config.RuntimeProvider{}
-	for _, id := range []string{"a", "b", "c", "d"} {
-		provs = append(provs, &config.RuntimeProvider{ID: id, Name: id, BaseURL: srv.URL, Paths: []string{"/" + id}, AuthStyle: config.AuthStyleBearer})
+	for i, id := range []string{"a", "b", "c", "d"} {
+		// 各自独立平台（v0.2.5：同平台会被串行化，跨平台才是并发场景）
+		provs = append(provs, &config.RuntimeProvider{ID: id, Name: id, Platform: "p" + id, KeyIndex: i, KeyCount: 1,
+			BaseURL: srv.URL, Paths: []string{"/" + id}, AuthStyle: config.AuthStyleBearer})
 	}
 	cfg := mkRuntime(provs...)
 	cfg.Collector = *rtConfig(300, 0, 0) // 无错峰：全部同时启动

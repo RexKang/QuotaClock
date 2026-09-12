@@ -11,13 +11,13 @@ import (
 // validPut 返回一份合法 PUT 基准样本（各规则用例在其上做单项变异）。
 func validPut() *Put {
 	return &Put{
-		Version:   3,
+		Version:   CurrentVersion,
 		Listen:    Listen{Host: "127.0.0.1", Port: 8787},
 		Collector: DefaultCollector(),
 		Auth:      PutAuth{Mode: AuthModeAdmin},
 		Providers: []PutProvider{{
-			ID: "p1", Name: "P1", BaseURL: "https://api.example.com",
-			Paths: []string{"/balance"}, AuthStyle: "bearer",
+			Platform:   "deepseek",
+			AccessKeys: []PutAccessKey{{ID: "k1", Name: "A1", Token: "sk-abcdefgh"}},
 		}},
 	}
 }
@@ -31,16 +31,19 @@ func fieldOf(errs []ValidationError, field string) bool {
 	return false
 }
 
-// TestValidateRules C-config-01..12 + 16：R1–R14 逐规则合法/非法样本。
+// TestValidateRules 逐规则合法/非法样本（v0.2.5：provider 侧改为 platform 白名单 + access_keys）。
 func TestValidateRules(t *testing.T) {
+	mkPut := func(platform string, keys ...PutAccessKey) PutProvider {
+		return PutProvider{Platform: platform, AccessKeys: keys}
+	}
 	cases := []struct {
 		name   string
 		mutate func(*Put)
 		field  string
 		legal  bool
 	}{
-		{"R1 version", func(p *Put) { p.Version = 2 }, "version", false},
-		{"R1 version ok", func(p *Put) { p.Version = 3 }, "version", true},
+		{"R1 version", func(p *Put) { p.Version = 3 }, "version", false},
+		{"R1 version ok", func(p *Put) { p.Version = CurrentVersion }, "version", true},
 		{"R2 port low", func(p *Put) { p.Listen.Port = 0 }, "listen.port", false},
 		{"R2 port high", func(p *Put) { p.Listen.Port = 65536 }, "listen.port", false},
 		{"R2 port ok", func(p *Put) { p.Listen.Port = 65535 }, "listen.port", true},
@@ -59,18 +62,33 @@ func TestValidateRules(t *testing.T) {
 		{"R8 backoff max ok", func(p *Put) { p.Collector.BackoffMaxS = 86400 }, "collector.backoff_max_s", true},
 		{"R9 mode bad", func(p *Put) { p.Auth.Mode = "root" }, "auth.mode", false},
 		{"R9 mode none", func(p *Put) { p.Auth.Mode = AuthModeNone }, "auth.mode", true},
-		{"R10 id empty", func(p *Put) { p.Providers[0].ID = "" }, "providers[0].id", false},
-		{"R10 id dup", func(p *Put) {
-			p.Providers = append(p.Providers, PutProvider{ID: "p1", BaseURL: "https://x.com", Paths: []string{"/a"}})
-		}, "providers[1].id", false},
-		{"R11 url bad", func(p *Put) { p.Providers[0].BaseURL = "ftp://x.com" }, "providers[0].base_url", false},
-		{"R11 url ok", func(p *Put) { p.Providers[0].BaseURL = "http://127.0.0.1:9999/api" }, "providers[0].base_url", true},
-		{"R12 paths empty", func(p *Put) { p.Providers[0].Paths = []string{} }, "providers[0].paths", false},
-		{"R12 paths nil", func(p *Put) { p.Providers[0].Paths = nil }, "providers[0].paths", false},
-		{"R13 auth_style bad", func(p *Put) { p.Providers[0].AuthStyle = "header" }, "providers[0].auth_style", false},
-		{"R13 auth_style cookie", func(p *Put) { p.Providers[0].AuthStyle = "cookie" }, "providers[0].auth_style", true},
-		{"R14 header key bad", func(p *Put) { p.Providers[0].ExtraHeaders = map[string]string{"x server": "1"} }, "providers[0].extra_headers", false},
-		{"R14 header key ok", func(p *Put) { p.Providers[0].ExtraHeaders = map[string]string{"x-server-id": "abc"} }, "providers[0].extra_headers", true},
+
+		// R10 平台白名单（不允许自建平台）
+		{"R10 platform 空", func(p *Put) { p.Providers[0].Platform = "" }, "providers[0].platform", false},
+		{"R10 platform 未知", func(p *Put) { p.Providers[0].Platform = "my-custom-platform" }, "providers[0].platform", false},
+		{"R10 platform 重复", func(p *Put) {
+			p.Providers = append(p.Providers, mkPut("deepseek", PutAccessKey{ID: "k2"}))
+		}, "providers[1].platform", false},
+		{"R10 platform 四种预设均合法", func(p *Put) {
+			p.Providers = []PutProvider{
+				mkPut("zhipu-glm", PutAccessKey{ID: "z1"}),
+				mkPut("deepseek", PutAccessKey{ID: "d1"}),
+				mkPut("kimi-code", PutAccessKey{ID: "m1"}),
+				mkPut("opencode", PutAccessKey{ID: "o1"}),
+			}
+		}, "", true},
+
+		// R11 至少一个凭据
+		{"R11 access_keys 空", func(p *Put) { p.Providers[0].AccessKeys = nil }, "providers[0].access_keys", false},
+
+		// R12 凭据 id
+		{"R12 key id 空", func(p *Put) { p.Providers[0].AccessKeys[0].ID = "" }, "providers[0].access_keys[0].id", false},
+		{"R12 key id 重复", func(p *Put) {
+			p.Providers[0].AccessKeys = append(p.Providers[0].AccessKeys, PutAccessKey{ID: "k1"})
+		}, "providers[0].access_keys[1].id", false},
+		{"R12 多凭据合法", func(p *Put) {
+			p.Providers[0].AccessKeys = []PutAccessKey{{ID: "k1"}, {ID: "k2"}, {ID: "k3"}}
+		}, "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -86,7 +104,7 @@ func TestValidateRules(t *testing.T) {
 			if len(errs) == 0 {
 				t.Fatal("非法样本通过校验")
 			}
-			if !fieldOf(errs, tc.field) {
+			if tc.field != "" && !fieldOf(errs, tc.field) {
 				t.Fatalf("details 未含 %s: %v", tc.field, errs)
 			}
 		})
@@ -95,84 +113,91 @@ func TestValidateRules(t *testing.T) {
 	if errs := Validate(validPut()); len(errs) != 0 {
 		t.Fatalf("基准样本非法: %v", errs)
 	}
-	// 缺省 auth_style 视为 bearer（合法）
+	// 凭据名可空（展示回落平台名）
 	p := validPut()
-	p.Providers[0].AuthStyle = ""
+	p.Providers[0].AccessKeys[0].Name = ""
 	if errs := Validate(p); len(errs) != 0 {
-		t.Fatalf("缺省 auth_style 应合法: %v", errs)
+		t.Fatalf("空凭据名应合法: %v", errs)
 	}
 }
 
-func TestParseUnknownField(t *testing.T) { // C-config-13
-	body := `{"version":3,"listenn":{"host":"127.0.0.1","port":8787},"collector":{},"auth":{"mode":"admin"},"providers":[]}`
+func TestParseUnknownField(t *testing.T) {
+	body := `{"version":4,"listenn":{"host":"127.0.0.1","port":8787},"collector":{},"auth":{"mode":"admin"},"providers":[]}`
 	if _, err := ParsePut([]byte(body)); err == nil {
 		t.Fatal("未知字段未拒绝")
 	}
 }
 
-func TestParseSensitiveAndComputed(t *testing.T) { // C-config-14
+func TestParseSensitiveAndComputed(t *testing.T) {
 	// 敏感字段 → 400（token_cipher）
-	sensitive := `{"version":3,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"id":"a","base_url":"https://x.com","paths":["/"],"token_cipher":"AAAA"}]}`
+	sensitive := `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"deepseek","access_keys":[{"id":"k1","token_cipher":"AAAA"}]}]}`
 	if _, err := ParsePut([]byte(sensitive)); err == nil {
-		t.Fatal("password_hash/token_cipher 直写未拒绝")
+		t.Fatal("token_cipher 直写未拒绝")
 	} else if !strings.Contains(err.Error(), "token_cipher") {
 		t.Fatalf("错误应指出 token_cipher: %v", err)
 	}
-	hashOnly := `{"version":3,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin","password_hash":"$2a$10$xyz"},"providers":[]}`
+	hashOnly := `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin","password_hash":"$2a$10$xyz"},"providers":[]}`
 	if _, err := ParsePut([]byte(hashOnly)); err == nil {
 		t.Fatal("password_hash 直写未拒绝")
 	}
-	// 计算字段 → 忽略并通过
+	// 计算字段 + 只读派生字段（GET 响应整体回传）→ 剥离并通过
 	computed := `{
-		"version":3,"listen":{"host":"127.0.0.1","port":8787},
+		"version":4,"listen":{"host":"127.0.0.1","port":8787},
 		"collector":{"interval_base_s":300,"jitter_min_s":5,"jitter_max_s":25,"stagger_min_s":1,"stagger_max_s":5,"backoff_multiplier":2,"backoff_max_s":1800},
 		"auth":{"mode":"admin","password_is_default":true,"authenticated":false},
-		"providers":[{"id":"a","name":"A","base_url":"https://x.com","paths":["/b"],"has_token":true,"token_masked":"ab****ef"}]
+		"providers":[{"platform":"kimi-code","platform_name":"Kimi Code","base_url":"https://api.kimi.com/coding/v1","paths":["/usages"],"auth_style":"bearer","extra_headers":{},"id":"kimi-code","name":"Kimi Code",
+			"access_keys":[{"id":"k1","name":"A1","has_token":true,"token_masked":"ab****ef"}]}]
 	}`
 	put, err := ParsePut([]byte(computed))
 	if err != nil {
-		t.Fatalf("计算字段回传被拒: %v", err)
+		t.Fatalf("计算/只读字段回传被拒: %v", err)
 	}
 	if errs := Validate(put); len(errs) != 0 {
-		t.Fatalf("计算字段剥离后应通过: %v", errs)
+		t.Fatalf("剥离后应通过: %v", errs)
+	}
+	if put.Providers[0].Platform != "kimi-code" || len(put.Providers[0].AccessKeys) != 1 {
+		t.Fatalf("平台与凭据应被保留: %+v", put.Providers[0])
 	}
 }
 
-func TestValidateNoShortCircuit(t *testing.T) { // C-config-15
+func TestValidateNoShortCircuit(t *testing.T) {
 	p := validPut()
-	p.Listen.Port = 70000                                                                                    // R2
-	p.Providers[0].Paths = nil                                                                               // R12
-	p.Providers = append(p.Providers, PutProvider{ID: "p1", BaseURL: "https://x.com", Paths: []string{"/"}}) // R10 id 重复
+	p.Listen.Port = 70000                                                                                       // R2
+	p.Providers[0].AccessKeys = nil                                                                             // R11
+	p.Providers = append(p.Providers, PutProvider{Platform: "deepseek", AccessKeys: []PutAccessKey{{ID: "k"}}}) // R10 平台重复
 	errs := Validate(p)
 	if len(errs) < 3 {
 		t.Fatalf("应同时返回全部错误项，got %d: %v", len(errs), errs)
 	}
-	if !fieldOf(errs, "listen.port") || !fieldOf(errs, "providers[0].paths") || !fieldOf(errs, "providers[1].id") {
+	if !fieldOf(errs, "listen.port") || !fieldOf(errs, "providers[0].access_keys") || !fieldOf(errs, "providers[1].platform") {
 		t.Fatalf("details 不全: %v", errs)
 	}
 }
 
-// viewFixture 构造带两个 provider 的 File（一个有 token，一个没有）。
+// viewFixture 构造带两个平台的 File（一个双凭据、一个单凭据）。
 func viewFixture() (*File, map[string]string) {
 	cipher, err := sealForTest("abcd1234")
 	if err != nil {
 		panic(err)
 	}
 	f := &File{
-		Version:   3,
+		Version:   CurrentVersion,
 		Listen:    DefaultListen(),
 		Collector: DefaultCollector(),
 		Auth:      FileAuth{Mode: AuthModeAdmin, PasswordHash: "$2a$10$abcdefghijklmnopqrstuv"},
 		Providers: []FileProvider{
-			{ID: "a", Name: "A", BaseURL: "https://x.com", Paths: []string{"/a"}, TokenCipher: cipher},
-			{ID: "b", Name: "B", BaseURL: "https://y.com", Paths: []string{"/b"}},
+			{Platform: "opencode", AccessKeys: []AccessKey{
+				{ID: "k1", Name: "A1", TokenCipher: cipher},
+				{ID: "k2", Name: "A2"},
+			}},
+			{Platform: "deepseek", AccessKeys: []AccessKey{{ID: "d1", TokenCipher: cipher}}},
 		},
 	}
-	masks := map[string]string{"a": "ab****34"}
+	masks := map[string]string{RuntimeID("opencode", "k1"): "ab****34"}
 	return f, masks
 }
 
-func TestViewLoggedIn(t *testing.T) { // C-config-17
+func TestViewLoggedIn(t *testing.T) {
 	f, masks := viewFixture()
 	v := BuildView(f, masks, true, true)
 	if !v.Auth.PasswordIsDefault || !v.Auth.Authenticated {
@@ -183,16 +208,25 @@ func TestViewLoggedIn(t *testing.T) { // C-config-17
 	if strings.Contains(s, "token_cipher") || strings.Contains(s, `"token"`) {
 		t.Fatal("视图含 token 字段")
 	}
-	pa := v.Providers[0]
-	if !pa.HasToken || pa.TokenMasked != "ab****34" {
-		t.Fatalf("登录态应含掩码: %+v", pa)
+	if len(v.Providers) != 2 {
+		t.Fatalf("平台数 = %d", len(v.Providers))
 	}
-	if v.Providers[1].HasToken {
-		t.Fatal("b 平台不应有 token")
+	if v.Providers[0].PlatformName != "OpenCode" || v.Providers[0].BaseURL != "https://opencode.ai/zen/go/v1" {
+		t.Fatalf("应带出平台预设展示信息: %+v", v.Providers[0])
+	}
+	k1 := v.Providers[0].AccessKeys[0]
+	if !k1.HasToken || k1.TokenMasked != "ab****34" || k1.Name != "A1" {
+		t.Fatalf("登录态凭据应含掩码: %+v", k1)
+	}
+	if v.Providers[0].AccessKeys[1].HasToken {
+		t.Fatal("k2 不应有 token")
+	}
+	if !strings.Contains(s, `"enabled":true`) {
+		t.Fatalf("视图应恒含 enabled: %s", s)
 	}
 }
 
-func TestViewNotLoggedIn(t *testing.T) { // C-config-18
+func TestViewNotLoggedIn(t *testing.T) {
 	f, masks := viewFixture()
 	v := BuildView(f, masks, false, true)
 	b, _ := json.Marshal(v)
@@ -201,7 +235,7 @@ func TestViewNotLoggedIn(t *testing.T) { // C-config-18
 		t.Fatal("未登录不应含 token_masked")
 	}
 	if !strings.Contains(s, `"has_token":false`) {
-		t.Fatal("has_token=false 平台字段应在（无 omitempty）")
+		t.Fatal("has_token=false 字段应在（无 omitempty）")
 	}
 	if !v.Auth.PasswordIsDefault {
 		t.Fatal("password_is_default 应始终如实返回")
@@ -211,21 +245,22 @@ func TestViewNotLoggedIn(t *testing.T) { // C-config-18
 	}
 }
 
-func TestViewRuneMask(t *testing.T) { // C-config-23
+func TestViewRuneMask(t *testing.T) {
 	cipher, _ := sealForTest("中文token🚀")
-	f := &File{Version: 3, Listen: DefaultListen(), Collector: DefaultCollector(),
-		Auth: FileAuth{Mode: AuthModeAdmin}, Providers: []FileProvider{{ID: "c", BaseURL: "https://z.com", Paths: []string{"/"}, TokenCipher: cipher}}}
-	v := BuildView(f, map[string]string{"c": crypto.Mask("中文token🚀")}, true, false)
+	f := &File{Version: CurrentVersion, Listen: DefaultListen(), Collector: DefaultCollector(),
+		Auth:      FileAuth{Mode: AuthModeAdmin},
+		Providers: []FileProvider{{Platform: "zhipu-glm", AccessKeys: []AccessKey{{ID: "k1", TokenCipher: cipher}}}}}
+	v := BuildView(f, map[string]string{RuntimeID("zhipu-glm", "k1"): crypto.Mask("中文token🚀")}, true, false)
 	// 中文token🚀 = 8 runes：前 2（中文）+ 后 2（n🚀）
-	if v.Providers[0].TokenMasked != "中文****n🚀" {
-		t.Fatalf("rune 掩码错误: %q", v.Providers[0].TokenMasked)
+	if got := v.Providers[0].AccessKeys[0].TokenMasked; got != "中文****n🚀" {
+		t.Fatalf("rune 掩码错误: %q", got)
 	}
 }
 
-// TestViewEmptyProviders：空配置（新环境模板）providers 序列化为 [] 而非 null，
-// 否则前端 addProvBtn 的 cfgView.providers.push 在 null 上崩溃（260906 用户实测）。
+// TestViewEmptyProviders：空配置 providers 序列化为 [] 而非 null（前端按数组直用），
+// access_keys 同理（否则前端在 push 处崩溃）。
 func TestViewEmptyProviders(t *testing.T) {
-	f := &File{Version: 3, Listen: DefaultListen(), Collector: DefaultCollector(),
+	f := &File{Version: CurrentVersion, Listen: DefaultListen(), Collector: DefaultCollector(),
 		Auth: FileAuth{Mode: AuthModeAdmin}, Providers: []FileProvider{}}
 	v := BuildView(f, nil, false, true)
 	b, err := json.Marshal(v)
@@ -235,6 +270,14 @@ func TestViewEmptyProviders(t *testing.T) {
 	if !strings.Contains(string(b), `"providers":[]`) {
 		t.Fatalf("空配置 providers 应序列化为 [] 而非 null: %s", b)
 	}
+
+	f2 := &File{Version: CurrentVersion, Listen: DefaultListen(), Collector: DefaultCollector(),
+		Auth:      FileAuth{Mode: AuthModeAdmin},
+		Providers: []FileProvider{{Platform: "deepseek", AccessKeys: []AccessKey{}}}}
+	b2, _ := json.Marshal(BuildView(f2, nil, false, true))
+	if !strings.Contains(string(b2), `"access_keys":[]`) {
+		t.Fatalf("空凭据列表应序列化为 []: %s", b2)
+	}
 }
 
 func TestValidateFileParity(t *testing.T) {
@@ -242,9 +285,8 @@ func TestValidateFileParity(t *testing.T) {
 	if errs := ValidateFile(f); len(errs) != 0 {
 		t.Fatalf("合法 File 校验失败: %v", errs)
 	}
-	f.Providers[0].Paths = nil
-	errs := ValidateFile(f)
-	if !fieldOf(errs, "providers[0].paths") {
-		t.Fatalf("File 校验应含 R12: %v", errs)
+	f.Providers[0].Platform = "unknown-platform"
+	if errs := ValidateFile(f); !fieldOf(errs, "providers[0].platform") {
+		t.Fatalf("File 校验应含平台白名单: %v", errs)
 	}
 }
