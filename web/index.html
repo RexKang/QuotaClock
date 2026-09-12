@@ -207,8 +207,8 @@
   <div style="flex:1"></div>
   <select id="providerSel" title="切换平台" style="display:none"></select>
   <button id="refreshBtn">刷新</button>
-  <button id="authBtn" class="ghost" style="display:none">登录</button>
   <button id="settingsBtn" class="ghost" style="display:none">设置</button>
+  <button id="authBtn" class="ghost" style="display:none">登录</button>
 </header>
 
 <div id="banners" class="banners"></div>
@@ -306,9 +306,6 @@
       <div class="form-row">
         <label>当前登录状态</label>
         <div class="acct-state" id="acctState"></div>
-      </div>
-      <div class="modal-actions" style="margin-top:4px">
-        <button id="acctAuthBtn" class="ghost">登录</button>
       </div>
     </div>
 
@@ -1148,23 +1145,22 @@ function switchSettingsTab(t) {
   if (t === 'account') renderAccountPane();
 }
 
-// renderAccountPane 账户安全标签的登录态文案与按钮（默认密码警示也在此复述一遍）。
+// renderAccountPane 账户安全标签的登录态文案（默认密码警示也在此复述一遍）。
+// v0.2.5 r4.1：本页不再自带「登录/登出」按钮——入口统一放页面右上角（刷新 / 设置 / 登出），
+// 这里只说明当前状态并指向那把按钮。
 function renderAccountPane() {
   const a = (cfgView && cfgView.auth) || {};
   const admin = a.mode === 'admin';
   const authed = !!a.authenticated;
-  const btn = $('#acctAuthBtn');
-  btn.style.display = admin ? '' : 'none';
-  btn.textContent = authed ? '登出' : '登录';
   let msg;
   if (!admin) {
     msg = '鉴权模式为 <b>none</b>：无鉴权，任何可访问者均可查看并修改配置。<br>如需保护配置，切到 <b>admin</b> 并设置管理密码。';
   } else if (authed) {
     msg = a.password_is_default
-      ? '已登录。<b>当前仍是默认密码，请立即修改</b>（默认密码已随源码公开，等于无保护）。'
-      : '已登录，可修改配置与密码。';
+      ? '已登录（登出用页面右上角的「登出」按钮）。<b>当前仍是默认密码，请立即修改</b>（默认密码已随源码公开，等于无保护）。'
+      : '已登录，可修改配置与密码；登出用页面右上角的「登出」按钮。';
   } else {
-    msg = '未登录：可查看看板，修改配置或密码需先登录。';
+    msg = '未登录：可查看看板，修改配置或密码需先登录（登录按钮在页面右上角）。';
   }
   $('#acctState').innerHTML = msg;
   $('#sPassword').disabled = admin && !authed;
@@ -1552,10 +1548,7 @@ $('#settingsBtn').onclick = openSettings;
 $('#stabPlatform').onclick = () => switchSettingsTab('platform');
 $('#stabService').onclick = () => switchSettingsTab('service');
 $('#stabAccount').onclick = () => switchSettingsTab('account');
-$('#acctAuthBtn').onclick = () => {
-  if (cfgView && cfgView.auth && cfgView.auth.authenticated) doLogout();
-  else openLogin('');
-};
+// 账户安全页不再有登录/登出按钮（入口统一在页面右上角），故此处无绑定
 $('#closeModalBtn').onclick = () => $('#settingsModal').classList.remove('open');
 $('#settingsModal').addEventListener('click', e => { if (e.target === e.currentTarget) e.target.classList.remove('open'); });
 $('#saveBtn').onclick = saveSettings;
