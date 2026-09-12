@@ -60,10 +60,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "stable"
+      # Release 正文：CHANGELOG.md 的当前版本小节 + 本次提交明细（脚本可在本地预览）
+      # --strict：CHANGELOG 里没写这个版本就直接失败，避免又发一条「看起来都一样」的说明
+      - name: 生成 Release 正文
+        run: python3 scripts/release_notes.py "$GITHUB_REF_NAME" --strict -o release-notes.md
+        shell: bash
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: latest
-          args: release --clean
+          args: release --clean --release-notes release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

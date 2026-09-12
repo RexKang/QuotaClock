@@ -248,7 +248,20 @@ python scripts/mock_upstream.py 8899                       # 终端 1
 QUOTACLOCK_UPSTREAM_OVERRIDE=http://127.0.0.1:8899 ./quotaclock -port 8797   # 终端 2
 ```
 
-发布由 GoReleaser + GitHub Actions 完成（push tag 触发，windows/amd64 + linux/amd64 + linux/arm64 产物 + sha256）。
+## 发布流程
+
+发布由 GoReleaser + GitHub Actions 完成（push tag 触发，windows/amd64 + linux/amd64 + linux/arm64 产物 + sha256）。Release 正文不是模板文案，而是自动拼出来的：
+
+```bash
+# 1. 先写 CHANGELOG.md：把当前版本的小节从「未发布」改成发布日期，写清新增/变更/修复
+# 2. 本地预览这次会生成的 Release 正文（不推任何东西）
+python scripts/release_notes.py v0.2.5
+# 3. 打标签并推送（CI 自动：go vet → go test -race → 三平台产物 → 建 Release）
+git tag -a v0.2.5 -m "v0.2.5 …"   # 标签注释也会留在 git 里，方便 git tag -n99 查看
+git push origin v0.2.5
+```
+
+Release 正文 = 固定下载说明 + **CHANGELOG.md 里该版本的小节（本版重点）** + 两版之间的提交明细（按新增/修复/性能/重构分组，去掉 40 位 SHA，`docs:`/`chore:`/`test:` 不进正文）。CI 里由 `scripts/release_notes.py` 生成后交给 `goreleaser --release-notes`，见 `.github/workflows/ci.yml`；CI 带 `--strict`——**CHANGELOG 里没写这个版本，发布直接失败**（避免又发一条「看起来都一样」的说明）。
 
 ## License
 

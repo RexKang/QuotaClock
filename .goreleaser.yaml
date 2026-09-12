@@ -31,19 +31,11 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Release 正文（含「本版重点」与提交明细）由 scripts/release_notes.py 生成后经
+# `--release-notes release-notes.md` 传入（见 .github/workflows/ci.yml）。
+# 因此这里关掉 goreleaser 自带的 changelog（它的输出是「40 位 SHA + 提交标题」的流水账，
+# 而且 header 是固定模板 —— 用户反馈「每个 Release 内容看起来都一样」）。
 release:
   draft: false
-  header: |
-    ## QuotaClock {{ .Tag }}
-
-    单二进制服务端，下载对应平台产物解压即用。
-    首次启动生成模板配置；默认密码 `Quota@2026090S`，登录后请立即修改。
-    校验和见 `checksums.txt`（sha256）。
 changelog:
-  use: git
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^chore:"
-      - "^test:"
+  disable: true
