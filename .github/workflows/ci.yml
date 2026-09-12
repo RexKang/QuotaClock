@@ -22,12 +22,13 @@ jobs:
       - name: go test -race
         run: go test -race ./...
       # 验收 #20 的持续保障：运行时敏感三件套必须被忽略
-      - name: gitignore 断言（config.json / key.bin / 锁文件）
+      - name: gitignore 断言（config.json / key.bin / 锁文件 / cache.json）
         run: |
           git check-ignore config.json
           git check-ignore key.bin
           git check-ignore quotaclock-test.lock
           git check-ignore old-config.json
+          git check-ignore cache.json
         shell: bash
 
   build:
