@@ -52,15 +52,23 @@ def http(method, url, body=None, headers=None, timeout=10):
     if body is not None:
         data = json.dumps(body).encode()
         req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req, data=data, timeout=timeout) as resp:
-            return resp.status, dict(resp.headers), json.loads(resp.read().decode() or "{}")
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode()
+    # 连接级异常重试一次：被测服务端若在响应前强关连接（历史上「拒绝路径未读干 body」
+    # 的缺陷），客户端会丢响应。修复已在服务端（server.drainBody），这里再兜一层并打告警——
+    # 出现告警说明还有连接级问题，别当成静默通过。
+    for attempt in (1, 2):
         try:
-            return e.code, dict(e.headers), json.loads(raw or "{}")
-        except Exception:
-            return e.code, dict(e.headers), {"raw": raw}
+            with urllib.request.urlopen(req, data=data, timeout=timeout) as resp:
+                return resp.status, dict(resp.headers), json.loads(resp.read().decode() or "{}")
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode()
+            try:
+                return e.code, dict(e.headers), json.loads(raw or "{}")
+            except Exception:
+                return e.code, dict(e.headers), {"raw": raw}
+        except Exception as e:
+            if attempt == 2:
+                raise
+            print(f"  [WARN] {method} {url} 连接异常，重试一次: {e!r}")
 
 
 class Instance:

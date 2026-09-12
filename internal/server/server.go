@@ -158,6 +158,7 @@ func (s *Server) requireWrite(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if _, code := s.checkSession(r); code != "" {
+			drainBody(r) // 先读干 body，否则连接被强关、客户端可能丢失这个 401
 			writeAuthErr(w, code)
 			return
 		}
@@ -240,6 +241,21 @@ func writeOK(w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// maxDrainBytes 读干 body 的上限（超过部分由 net/http 在关连接时丢弃）。
+const maxDrainBytes = 64 << 10
+
+// drainBody 读干请求体（有界）。
+// 必要性：handler 未消费 body 就写响应时，net/http 会关闭连接（响应带 close 语义），
+// 若客户端仍在发 body 就可能收到 RST、**丢掉这个响应**——实测 Windows 本机「带 body 的
+// PUT 未登录 → 401」3% 概率丢失（300 次 9 次），浏览器里表现为「保存失败」而非「请先登录」。
+// 故所有「不读 body 就拒绝」的路径（鉴权 401、登录的 400/429）先读干 body。
+func drainBody(r *http.Request) {
+	if r.Body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxDrainBytes))
+}
+
 // ---------- handlers ----------
 
 // handleIndex 内嵌静态页。
@@ -302,10 +318,12 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 // handleLogin POST /api/login：JSON-only（CSRF 防线③）→ 全局限速 → bcrypt 比对 → 签发会话。
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		drainBody(r)
 		writeErr(w, http.StatusBadRequest, "INVALID_CONTENT_TYPE", "Content-Type 必须为 application/json")
 		return
 	}
 	if ok, wait := s.limiter.Allow(); !ok {
+		drainBody(r)
 		rs := int(wait/time.Second) + 1
 		writeJSON(w, http.StatusTooManyRequests, errBody{Error: errInner{
 			Code: "RATE_LIMITED", Message: "失败次数过多，登录已锁定，请稍后再试", RetryAfterS: &rs,
