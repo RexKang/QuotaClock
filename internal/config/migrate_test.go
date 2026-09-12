@@ -101,14 +101,25 @@ func TestMigrateV1PlanA(t *testing.T) { // C-config-21
 	for _, p := range out.Providers {
 		byID[p.ID] = p
 	}
-	if len(out.Providers) != 4 {
-		t.Fatalf("应导入 4 个（enabled=false 跳过），got %d", len(out.Providers))
+	if len(out.Providers) != 5 {
+		t.Fatalf("应导入 5 个（含 enabled=false 导入并停用），got %d", len(out.Providers))
 	}
-	if _, ok := byID["disabledprov"]; ok {
-		t.Fatal("enabled=false 应跳过")
+	dp, ok := byID["disabledprov"]
+	if !ok {
+		t.Fatal("enabled=false 应导入并保持停用")
 	}
-	if !strings.Contains(joined, "enabled=false") || !strings.Contains(joined, "WARN") {
-		t.Fatalf("应 WARN enabled=false 跳过: %s", joined)
+	if dp.IsEnabled() {
+		t.Fatal("disabledprov 应保持停用（enabled=false）")
+	}
+	if dp.TokenCipher == "" {
+		t.Fatal("停用平台 token 仍应加密落盘（不丢配置）")
+	}
+	zp := byID["zhipu"]
+	if !zp.IsEnabled() {
+		t.Fatal("enabled=true 平台应启用")
+	}
+	if !strings.Contains(joined, "enabled=false") || !strings.Contains(joined, "保持停用") {
+		t.Fatalf("应记录 enabled=false 停用导入日志: %s", joined)
 	}
 
 	// zhipu：baseURL→base_url，params="{" 不告警，paths 序保持

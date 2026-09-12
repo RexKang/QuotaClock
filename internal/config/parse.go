@@ -32,6 +32,7 @@ type putProvWire struct {
 	AuthStyle    string            `json:"auth_style,omitempty"`
 	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
 	Token        string            `json:"token,omitempty"`
+	Enabled      *bool             `json:"enabled,omitempty"`      // v0.2.4：nil = 启用（兼容旧客户端不传）
 	TokenCipher  string            `json:"token_cipher,omitempty"` // 敏感字段：出现即 400
 	HasToken     bool              `json:"has_token"`              // 计算字段：剥离
 	TokenMasked  string            `json:"token_masked,omitempty"` // 计算字段：剥离
@@ -69,6 +70,7 @@ func ParsePut(body []byte) (*Put, error) {
 			AuthStyle:    wp.AuthStyle,
 			ExtraHeaders: wp.ExtraHeaders,
 			Token:        wp.Token,
+			Enabled:      wp.Enabled,
 		})
 	}
 	return p, nil

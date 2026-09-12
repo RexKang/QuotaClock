@@ -151,6 +151,18 @@ func main() {
 	store := collector.NewStore(version)
 	sched := collector.NewScheduler(runtime, store, collector.NewClient(version))
 
+	// 11.5 缓存上次成功数据（v0.2.4）：启动恢复 → 页面立刻有数据；成功后异步回写
+	cachePath := persist.CachePathOf(dir)
+	if c, cerr := persist.LoadCache(cachePath); cerr != nil {
+		logx.Warnf("缓存不可用，已忽略: %v", cerr)
+	} else if c != nil {
+		if n := sched.SeedCached(collector.RestoreFromCache(c, runtime)); n > 0 {
+			logx.Infof("已恢复 %d 个平台的上次成功数据（等待首轮采集刷新）", n)
+		}
+	}
+	cacheWriter := persist.StartCacheWriter(cachePath)
+	sched.SetCacheWriter(cacheWriter)
+
 	// 12. HTTP 服务
 	static, err := web.Index()
 	if err != nil {
@@ -229,6 +241,7 @@ func main() {
 	}()
 	sched.Wait() // 等待在途采集请求结束（与 drain 并行）
 	<-drainDone
+	cacheWriter.Close() // 最后一份缓存落盘（在途采集已全部结束）
 
 	if err := lockHandle.Release(); err != nil {
 		logx.Warnf("删除锁文件失败: %v", err)

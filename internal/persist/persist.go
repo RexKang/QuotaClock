@@ -1,5 +1,6 @@
 // Package persist 收敛 QuotaClock 的全部落盘写入（只读硬约束的代码结构落实，设计 §1-2）：
-// 白名单 = config.json、key.bin（由 crypto 包写）、quotaclock-*.lock（由 lock 包写）、*.tmp（原子写临时）。
+// 白名单 = config.json、key.bin（由 crypto 包写）、quotaclock-*.lock（由 lock 包写）、
+// cache.json（上次成功数据缓存，v0.2.4 新增）、*.tmp（原子写临时）。
 // 其余代码不持有写盘能力。
 package persist
 

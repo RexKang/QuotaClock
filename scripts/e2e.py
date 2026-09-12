@@ -128,9 +128,14 @@ class MockUpstream:
     def __init__(self):
         outer = self
         outer.payload = {"success": True, "data": {"percentage": 50}}
+        outer.hits = 0     # 成功应答计数（v0.2.4：停用平台不得产生请求）
+        outer.delay = 0.0  # 应答前延迟（v0.2.4：制造「缓存数据」观察窗口）
 
         class H(HTTPServerModule.BaseHTTPRequestHandler):
             def do_GET(self):
+                if outer.delay:
+                    time.sleep(outer.delay)
+                outer.hits += 1
                 body = json.dumps(outer.payload).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -183,6 +188,17 @@ def scenario_first_start(binpath):
 
 def scenario_api_chain(d, port, cfg, inst, mock):
     print("\n== 场景 2：登录 / PUT 配置 / 热生效采集 / 判重 ==")
+    base = f"{BASE}:{port}"
+    try:
+        _scenario_api_chain(d, port, cfg, inst, mock)
+    except Exception:
+        # 失败时把被测进程日志打出来（否则只剩客户端异常，无法定位）
+        print("--- 被测进程日志（尾部）---")
+        print(inst.log()[-1500:])
+        raise
+
+
+def _scenario_api_chain(d, port, cfg, inst, mock):
     base = f"{BASE}:{port}"
     code, hdr, body = http("POST", base + "/api/login", {"password": "wrong-pass"})
     check("错误密码 401 INVALID_CREDENTIALS", code == 401 and body["error"]["code"] == "INVALID_CREDENTIALS")
@@ -305,7 +321,11 @@ def scenario_migration(binpath, mock):
         check("迁移后无明文 token", not any(x in s for x in
               ["fake-zhipu-token", "sk-fake-bbbb", "sk-fake-kimi", "Fe26.2**fake", "sk-fake-d"]))
         byid = {p["id"]: p for p in mig["providers"]}
-        check("enabled=false 跳过（4 个导入）", len(mig["providers"]) == 4 and "disabled" not in byid)
+        check("enabled=false 导入并保持停用（5 个导入）",
+              len(mig["providers"]) == 5 and byid["disabled"].get("enabled") is False,
+              json.dumps({p["id"]: p.get("enabled") for p in mig["providers"]}))
+        check("停用平台 token 仍加密落盘（不丢配置）", bool(byid["disabled"].get("token_cipher")))
+        check("停用导入 INFO 日志", "保持停用" in inst.log())
         check("kimi 自动改写 base_url", byid["moonshot"]["base_url"] == "https://api.kimi.com/coding/v1")
         check("kimi paths 序保持", byid["moonshot"]["paths"] == ["/usages", "/me", "/models"])
         check("opencode 改写官方用量接口", byid["opencode"]["base_url"] == "https://opencode.ai/zen/go/v1"
@@ -392,6 +412,116 @@ def scenario_graceful(binpath, d, port, cfg):
     check("锁文件已删除", gone)
 
 
+def scenario_enabled_and_cache(binpath, d, port, cfg, mock):
+    """v0.2.4：enabled 停用（停采 + disabled 态）与 cache.json 上次成功数据（重启后 cached → ok）。"""
+    print("\n== 场景 7：enabled 停用 / cache.json 上次成功数据（v0.2.4） ==")
+    base = f"{BASE}:{port}"
+    inst = Instance(binpath, cfg, port)
+    try:
+        inst.wait_ready()
+        code, hdr, body = http("POST", base + "/api/login", {"password": "Quota@2026090S"})
+        cookie = re.search(r"qc_session=([^;]+)", hdr.get("Set-Cookie", "")).group(1)
+        auth = {"Cookie": "qc_session=" + cookie}
+
+        put = {
+            "version": 3,
+            "listen": {"host": "127.0.0.1", "port": port},
+            "collector": {"interval_base_s": 30, "jitter_min_s": 5, "jitter_max_s": 25,
+                          "stagger_min_s": 1, "stagger_max_s": 5, "backoff_multiplier": 2, "backoff_max_s": 1800},
+            "auth": {"mode": "admin"},
+            "providers": [
+                {"id": "onp", "name": "启用平台", "base_url": mock.url(),
+                 "paths": ["/q"], "auth_style": "bearer", "token": "«redacted:sk-onn»"},          # enabled 缺省 = 启用
+                {"id": "offp", "name": "停用平台", "base_url": mock.url(),
+                 "paths": ["/q"], "auth_style": "bearer", "enabled": False,
+                 "token": "«redacted:sk-off»"},
+            ],
+        }
+        code, _, _ = http("PUT", base + "/api/config", put, auth)
+        check("PUT（1 启用 + 1 停用）200", code == 200)
+
+        code, _, view = http("GET", base + "/api/config", None, auth)
+        byid = {p["id"]: p for p in view["providers"]}
+        check("视图 enabled 往返（缺省 true / 显式 false）",
+              byid["onp"]["enabled"] is True and byid["offp"]["enabled"] is False, json.dumps(byid))
+        with open(cfg, encoding="utf-8") as f:
+            raw = f.read()
+        check("停用平台落盘 enabled: false", '"enabled": false' in raw)
+
+        snap = wait_snapshot(base, lambda s: all(
+            p.get("status") not in ("failed",) or (p.get("error") or {}).get("code") != "NOT_COLLECTED_YET"
+            for p in s["providers"]), timeout=30)
+        sp = {p["id"]: p for p in snap["providers"]}
+        check("停用平台快照 status=disabled/DISABLED",
+              sp["offp"]["status"] == "disabled" and (sp["offp"].get("error") or {}).get("code") == "DISABLED",
+              json.dumps(sp.get("offp"))[:200])
+        hits_before = mock.hits
+        sleep_until = time.time() + 5
+        while time.time() < sleep_until:
+            time.sleep(0.25)
+        check("停用平台不发请求（5s 内上游计数不变）", mock.hits == hits_before,
+              f"{hits_before}→{mock.hits}")
+        check("启用平台正常采集", sp["onp"]["status"] == "ok")
+
+        # cache.json：白名单 + 内容（只含启用平台的成功数据、无 token）
+        cache_path = os.path.join(d, "cache.json")
+        t0 = time.time()
+        while time.time() - t0 < 5 and not os.path.exists(cache_path):
+            time.sleep(0.1)
+        check("cache.json 已落盘", os.path.exists(cache_path))
+        with open(cache_path, encoding="utf-8") as f:
+            cache = json.load(f)
+        cids = [e["id"] for e in cache["providers"]]
+        check("缓存只含成功平台（停用平台不入档）", cids == ["onp"], json.dumps(cids))
+        check("缓存无 token/密文", "token" not in json.dumps(cache) and "cipher" not in json.dumps(cache))
+        cached_at = cache["providers"][0]["last_success_at"]
+        files = sorted(os.listdir(d))
+        allowed = all(re.fullmatch(r"config\d*\.json", x) is not None
+                      or x in ("key.bin", "cache.json")
+                      or (x.startswith("quotaclock-") and x.endswith(".lock"))
+                      or x.endswith(".tmp") for x in files)
+        check("写盘白名单：目录内仅运行时白名单文件（含 cache.json）", allowed, json.dumps(files))
+
+        # 重启：首屏应为 cached（上游故意慢），首轮采集后转 ok
+        inst.kill()
+        mock.delay = 8.0
+        inst2 = Instance(binpath, cfg, port)
+        try:
+            inst2.wait_ready()
+            _, _, s0 = http("GET", base + "/api/quotas")
+            p0 = {p["id"]: p for p in s0["providers"]}
+            check("重启首屏 status=cached（不回到等待首次采集）",
+                  p0["onp"]["status"] == "cached", json.dumps(p0.get("onp"))[:200])
+            check("缓存态保留原 last_success_at", p0["onp"]["last_success_at"] == cached_at,
+                  f"{cached_at} vs {p0['onp']['last_success_at']}")
+            check("停用平台重启后仍为 disabled", p0["offp"]["status"] == "disabled")
+            s1 = wait_snapshot(base, lambda s: all(p.get("status") != "cached" for p in s["providers"]), timeout=30)
+            p1 = {p["id"]: p for p in s1["providers"]}
+            check("首轮采集成功后转 ok", p1["onp"]["status"] == "ok", json.dumps(p1.get("onp"))[:200])
+        finally:
+            inst2.kill()
+        mock.delay = 0.0
+
+        # 启用原停用平台 → 立刻进入采集
+        inst3 = Instance(binpath, cfg, port)
+        try:
+            inst3.wait_ready()
+            put["providers"][1]["enabled"] = True
+            code, _, _ = http("PUT", base + "/api/config", put, auth)
+            check("勾选启用 PUT 200", code == 200)
+            h0 = mock.hits
+            s2 = wait_snapshot(base, lambda s: all(p.get("status") == "ok" for p in s["providers"]), timeout=40)
+            p2 = {p["id"]: p for p in s2["providers"]}
+            check("重新启用后开始采集（两平台均 ok）",
+                  p2["onp"]["status"] == "ok" and p2["offp"]["status"] == "ok",
+                  json.dumps({k: v["status"] for k, v in p2.items()}))
+            check("上游确实收到新平台的请求", mock.hits > h0, f"{h0}→{mock.hits}")
+        finally:
+            inst3.kill()
+    finally:
+        inst.kill()  # 幂等：中途异常时确保首实例被回收
+
+
 def scenario_startup_time(binpath):
     print("\n== 场景 6：非功能：启动 <1s ==")
     d = tempfile.mkdtemp(prefix="qc-e2e-boot-")
@@ -422,6 +552,7 @@ def main():
             inst.kill()
         scenario_graceful(binpath, d, port, cfg)
         scenario_migration(binpath, mock)
+        scenario_enabled_and_cache(binpath, d, port, cfg, mock)
         scenario_startup_time(binpath)
     finally:
         mock.close()

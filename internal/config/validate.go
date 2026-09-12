@@ -111,6 +111,7 @@ func ValidateFile(f *File) []ValidationError {
 			Paths:        fp.Paths,
 			AuthStyle:    fp.AuthStyle,
 			ExtraHeaders: fp.ExtraHeaders,
+			Enabled:      fp.Enabled,
 		})
 	}
 	return Validate(p)

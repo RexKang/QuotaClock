@@ -60,7 +60,8 @@ type v1Config struct {
 type SealFunc func(plaintext string) (string, error)
 
 // MigrateV1 把 v0.1 导出 JSON（version 2）转为 v0.2 File（version 3）：
-// token 加密落盘、代理平台自动改写、enabled=false 跳过。返回结果与迁移日志行（WARN/INFO）。
+// token 加密落盘、代理平台自动改写、enabled=false 导入并保持停用（v0.2.4 恢复 enabled 概念）。
+// 返回结果与迁移日志行（WARN/INFO）。
 // 迁移完成后明文即焚：仅存在于 seal 闭包与返回值之外的本函数栈内，不落日志。
 func MigrateV1(raw []byte, seal SealFunc) (*File, []string, error) {
 	var v1 v1Config
@@ -89,14 +90,17 @@ func MigrateV1(raw []byte, seal SealFunc) (*File, []string, error) {
 
 	for i := range v1.Providers {
 		vp := &v1.Providers[i]
-		if vp.Enabled != nil && !*vp.Enabled {
-			warnf("迁移：provider %q enabled=false，未导入（v0.2 无 enabled 概念，如需启用请在设置中手动添加）", vp.ID)
-			continue
-		}
+		disabled := vp.Enabled != nil && !*vp.Enabled
 		fp, rewritten, skipWarn := migrateProvider(vp, seal, infof, warnf)
 		if skipWarn != "" {
 			warnf("%s", skipWarn)
 			continue
+		}
+		if disabled {
+			// v0.2.4 恢复 enabled 概念：v0.1 的停用平台照常导入并**保持停用**（不参与采集），
+			// 由用户在设置页决定是否启用。旧语义为直接跳过，会静默丢配置。
+			fp.Enabled = BoolPtr(false)
+			infof("迁移：provider %q enabled=false，已导入并保持停用（如需启用请在设置中勾选「启用」）", vp.ID)
 		}
 		out.Providers = append(out.Providers, *fp)
 		_ = rewritten

@@ -25,6 +25,7 @@ func BuildRuntime(f *File, masterKey []byte) *Runtime {
 			AuthStyle:    fp.AuthStyle,
 			ExtraHeaders: fp.ExtraHeaders,
 			TokenCipher:  fp.TokenCipher,
+			Enabled:      CopyBoolPtr(fp.Enabled),
 		}
 		if p.AuthStyle == "" {
 			p.AuthStyle = AuthStyleBearer
@@ -72,6 +73,7 @@ func BuildView(f *File, masks map[string]string, authenticated, passwordIsDefaul
 			AuthStyle:    fp.AuthStyle,
 			ExtraHeaders: fp.ExtraHeaders,
 			HasToken:     fp.TokenCipher != "",
+			Enabled:      fp.IsEnabled(),
 		}
 		if authenticated && vp.HasToken {
 			vp.TokenMasked = masks[fp.ID]

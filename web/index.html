@@ -76,6 +76,9 @@
   .prov-card-head .badge { font-size: 16px; padding: 3px 9px; border-radius: 20px; background: var(--card2); color: var(--muted); border: 1px solid var(--border); }
   .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
   .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
+  .prov-card-head .badge.warn { background: rgba(251,191,36,.12); color: var(--warn); border-color: rgba(251,191,36,.3); }
+  /* 已停用平台：整卡压暗（v0.2.4） */
+  .prov-card.disabled { opacity: .58; }
   .prov-card-head .go-detail { font-size: 20px; color: var(--muted); cursor: pointer; padding: 4px 12px; user-select: none; border-radius: 8px; margin-left: auto; }
   .prov-card-head .go-detail:hover { color: var(--accent); background: var(--card2); }
   .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
@@ -135,6 +138,22 @@
   .prov-item .prov-name { flex: 1; word-break: break-all; }
   .prov-item .del { opacity: 0; font-size: 16px; padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.25); }
   .prov-item:hover .del { opacity: 1; }
+  /* 平台列表里的停用标记（v0.2.4） */
+  .prov-item .off-tag { font-size: 13px; color: var(--warn); border: 1px solid rgba(251,191,36,.4); border-radius: 10px; padding: 0 7px; margin-left: 6px; flex: none; }
+  .prov-item.active .off-tag { color: #fff; border-color: rgba(255,255,255,.6); }
+
+  /* 设置面板双标签：平台管理 / 账户安全（v0.2.4） */
+  .settings-tabs { display: flex; gap: 4px; background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 16px; width: fit-content; }
+  .settings-tabs button { background: none; border: none; color: var(--muted); padding: 7px 18px; border-radius: 7px; font-size: 16px; }
+  .settings-tabs button.active { background: var(--accent); color: #fff; }
+  .pane { display: none; }
+  .pane.active { display: block; }
+  .section-title { font-size: 15px; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+  .form-row.check { display: flex; align-items: center; gap: 8px; }
+  .form-row.check input[type=checkbox] { width: 18px; height: 18px; flex: none; accent-color: var(--accent); cursor: pointer; }
+  .form-row.check label { margin: 0; color: var(--text); cursor: pointer; }
+  .acct-state { background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 16px; color: var(--muted); }
+  .acct-state b { color: var(--text); }
   .form-row { margin-bottom: 12px; }
   .form-row label { display: block; font-size: 16px; color: var(--muted); margin-bottom: 5px; }
   .form-row input, .form-row textarea { width: 100%; }
@@ -186,82 +205,110 @@
   <pre id="rawData"></pre>
 </div>
 
-<!-- 设置弹窗 -->
+<!-- 设置弹窗（v0.2.4 双标签：平台管理 / 账户安全） -->
 <div class="modal-mask" id="settingsModal">
   <div class="modal">
     <h2>设置</h2>
-    <div class="modal-grid">
-      <div class="prov-list">
-        <div id="provItems"></div>
-        <button id="addProvBtn" class="ghost" style="width:100%; margin-top:4px">+ 添加平台</button>
-        <div style="border-top:1px solid var(--border); margin-top:12px; padding-top:10px">
-          <div class="form-row">
-            <label>鉴权模式</label>
-            <select id="sAuthMode" style="width:100%">
-              <option value="admin">admin（修改需登录）</option>
-              <option value="none">none（全开放）</option>
-            </select>
+    <div class="settings-tabs">
+      <button id="stabPlatform" class="active">平台管理</button>
+      <button id="stabAccount">账户安全</button>
+    </div>
+
+    <!-- 标签一：平台管理 -->
+    <div class="pane active" id="panePlatform">
+      <div class="modal-grid">
+        <div class="prov-list">
+          <div id="provItems"></div>
+          <button id="addProvBtn" class="ghost" style="width:100%; margin-top:4px">+ 添加平台</button>
+        </div>
+        <div>
+          <div class="form-cols-3">
+            <div class="form-row">
+              <label>平台 ID（唯一标识）</label>
+              <input type="text" id="fId">
+            </div>
+            <div class="form-row">
+              <label>平台名称</label>
+              <input type="text" id="fName">
+            </div>
+          </div>
+          <div class="form-row check">
+            <input type="checkbox" id="fEnabled">
+            <label for="fEnabled">启用该平台（取消勾选 = 停用，不参与采集）</label>
           </div>
           <div class="form-row">
-            <label>修改管理密码</label>
-            <input type="password" id="sPassword" autocomplete="new-password" placeholder="留空 = 不修改">
+            <label>Base URL（API 网关地址，不含路径）</label>
+            <input type="text" id="fBase">
           </div>
+          <div class="form-cols">
+            <div class="form-row">
+              <label>鉴权方式</label>
+              <select id="fAuthStyle">
+                <option value="bearer">bearer（Authorization 头）</option>
+                <option value="cookie">cookie（Cookie 头）</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Token（只写不回显）</label>
+              <input type="password" id="fToken" autocomplete="off" placeholder="">
+              <div class="tip" id="fTokenTip">留空 = 保留原值</div>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>额外请求头（每行一条，格式 Key: Value，可覆盖默认头）</label>
+            <textarea id="fHeaders" placeholder="x-server-id: deadbeef...&#10;x-server-instance: server-fn:5"></textarea>
+          </div>
+          <div class="form-row">
+            <label>请求路径（每行一条，相对 Base URL，可含 ?query）</label>
+            <textarea id="fPaths" placeholder="/user/balance"></textarea>
+          </div>
+        </div>
+      </div>
+      <div style="border-top:1px solid var(--border); margin-top:16px; padding-top:14px">
+        <div class="section-title">采集与服务</div>
+        <div class="form-cols">
           <div class="form-row">
             <label>采集基准间隔（秒）</label>
             <input type="number" id="sInterval" min="30">
           </div>
-          <div class="form-cols">
-            <div class="form-row">
-              <label>监听 IP</label>
-              <input type="text" id="sHost">
-            </div>
-            <div class="form-row">
-              <label>端口</label>
-              <input type="number" id="sPort" min="1" max="65535">
-            </div>
-          </div>
-          <div class="tip" style="font-size:14px;color:var(--muted)">监听地址/端口修改保存后<b>需重启程序</b>才生效</div>
-        </div>
-      </div>
-      <div>
-        <div class="form-cols-3">
-          <div class="form-row">
-            <label>平台 ID（唯一标识）</label>
-            <input type="text" id="fId">
-          </div>
-          <div class="form-row">
-            <label>平台名称</label>
-            <input type="text" id="fName">
-          </div>
-        </div>
-        <div class="form-row">
-          <label>Base URL（API 网关地址，不含路径）</label>
-          <input type="text" id="fBase">
         </div>
         <div class="form-cols">
           <div class="form-row">
-            <label>鉴权方式</label>
-            <select id="fAuthStyle">
-              <option value="bearer">bearer（Authorization 头）</option>
-              <option value="cookie">cookie（Cookie 头）</option>
-            </select>
+            <label>监听 IP</label>
+            <input type="text" id="sHost">
           </div>
           <div class="form-row">
-            <label>Token（只写不回显）</label>
-            <input type="password" id="fToken" autocomplete="off" placeholder="">
-            <div class="tip" id="fTokenTip">留空 = 保留原值</div>
+            <label>端口</label>
+            <input type="number" id="sPort" min="1" max="65535">
           </div>
         </div>
-        <div class="form-row">
-          <label>额外请求头（每行一条，格式 Key: Value，可覆盖默认头）</label>
-          <textarea id="fHeaders" placeholder="x-server-id: deadbeef...&#10;x-server-instance: server-fn:5"></textarea>
-        </div>
-        <div class="form-row">
-          <label>请求路径（每行一条，相对 Base URL，可含 ?query）</label>
-          <textarea id="fPaths" placeholder="/user/balance"></textarea>
-        </div>
+        <div class="tip" style="font-size:14px;color:var(--muted)">监听地址/端口修改保存后<b>需重启程序</b>才生效</div>
       </div>
     </div>
+
+    <!-- 标签二：账户安全 -->
+    <div class="pane" id="paneAccount">
+      <div class="form-row">
+        <label>鉴权模式</label>
+        <select id="sAuthMode" style="width:100%">
+          <option value="admin">admin（查看公开、修改须登录）</option>
+          <option value="none">none（全开放，本机自用）</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>修改管理密码</label>
+        <input type="password" id="sPassword" autocomplete="new-password" placeholder="留空 = 不修改">
+        <div class="tip" id="sPasswordTip">留空 = 不修改；修改后立即生效，无需重启</div>
+      </div>
+      <div class="form-row">
+        <label>当前登录状态</label>
+        <div class="acct-state" id="acctState"></div>
+      </div>
+      <div class="modal-actions" style="margin-top:4px">
+        <button id="acctAuthBtn" class="ghost">登录</button>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button id="saveBtn">保存</button>
       <button id="testBtn" class="ghost">测试连接</button>
@@ -670,14 +717,20 @@ function renderHomeGrid() {
   $('#emptyHome').style.display = provs.length ? 'none' : 'block';
   for (const prov of provs) {
     const card = document.createElement('div');
-    card.className = 'prov-card';
+    card.className = 'prov-card' + (prov.status === 'disabled' ? ' disabled' : '');
     const badge = prov.status === 'ok' ? `<span class="badge ok">正常</span>`
+      : prov.status === 'cached' ? `<span class="badge warn">缓存数据</span>`
+      : prov.status === 'disabled' ? `<span class="badge">已停用</span>`
       : prov.status === 'token_invalid' ? `<span class="badge err">token 失效</span>`
       : `<span class="badge err">采集失败</span>`;
 
     // 错误分类文案（红字与失败文案严格区分；倒计时按 retry_after_s 前端计算）
     let errNote = '';
-    if (prov.status === 'token_invalid') {
+    if (prov.status === 'disabled') {
+      errNote = `<div class="pending-note">平台已停用，不参与采集（设置 → 平台管理 → 勾选「启用该平台」）</div>`;
+    } else if (prov.status === 'cached') {
+      errNote = `<div class="pending-note">显示上次成功采集的数据${prov.last_success_at ? '（' + esc(fmtTime(prov.last_success_at)) + '）' : ''}，等待本轮采集刷新...</div>`;
+    } else if (prov.status === 'token_invalid') {
       errNote = `<div class="err-note">${esc((prov.error && prov.error.message) || 'token 失效，请在设置中更新')}</div>`;
     } else if (prov.status === 'failed') {
       const code = prov.error && prov.error.code;
@@ -695,7 +748,7 @@ function renderHomeGrid() {
     }
 
     let inner;
-    if (prov.status === 'ok' && prov.data !== null && prov.data !== undefined) {
+    if ((prov.status === 'ok' || prov.status === 'cached') && prov.data !== null && prov.data !== undefined) {
       const items = extractQuotaItems(prov);
       const byLabel = {};
       for (const it of items) { if (!byLabel[it.label]) byLabel[it.label] = it; }
@@ -872,7 +925,7 @@ function renderDetail() {
   for (const p of provs) {
     const o = document.createElement('option');
     o.value = p.id;
-    o.textContent = p.name + (p.status === 'ok' ? ' ✓' : '');
+    o.textContent = p.name + (p.status === 'ok' ? ' ✓' : p.status === 'cached' ? ' · 缓存' : p.status === 'disabled' ? ' · 已停用' : '');
     sel.appendChild(o);
   }
   if (prov) sel.value = prov.id;
@@ -886,8 +939,11 @@ function renderDetail() {
   }
   detailId = prov.id;
   const cv = ((cfgView && cfgView.providers) || []).find(p => p.id === prov.id) || {};
-  const okCls = prov.status === 'ok' ? 'ok' : 'err';
-  const statusText = prov.status === 'ok' ? '正常' : prov.status === 'token_invalid' ? 'token 失效' : '采集失败';
+  const okCls = (prov.status === 'ok' || prov.status === 'cached') ? 'ok' : 'err';
+  const statusText = prov.status === 'ok' ? '正常'
+    : prov.status === 'cached' ? '缓存数据（待本轮刷新）'
+    : prov.status === 'disabled' ? '已停用'
+    : prov.status === 'token_invalid' ? 'token 失效' : '采集失败';
   kpiBox.innerHTML = `
     <div class="kpi"><div class="label">状态</div><div class="value ${okCls}">${esc(statusText)}</div></div>
     <div class="kpi"><div class="label">上次成功采集</div><div class="value">${esc(prov.last_success_at ? fmtTime(prov.last_success_at) : '--')}</div></div>
@@ -896,7 +952,11 @@ function renderDetail() {
     <div class="kpi"><div class="label">路径</div><div class="value" style="font-size:15px">${esc((cv.paths || []).join(' , '))}</div></div>
     <div class="kpi"><div class="label">鉴权方式</div><div class="value">${esc(cv.auth_style || 'bearer')}</div></div>`;
   raw.textContent = prov.data === null || prov.data === undefined ? '（暂无数据：尚未成功采集）' : pretty(resolveData(prov.data));
-  setConn('detail', okCls, provs.filter(p => p.status === 'ok').length + '/' + provs.length + ' 个平台有数据');
+  const active = provs.filter(p => p.status !== 'disabled');
+  const withData = active.filter(p => p.status === 'ok' || p.status === 'cached').length;
+  setConn('detail', okCls, active.length
+    ? withData + '/' + active.length + ' 个平台有数据' + (provs.length - active.length ? `（${provs.length - active.length} 个已停用）` : '')
+    : '全部平台已停用');
 }
 
 /* ---------- 视图切换 ---------- */
@@ -968,9 +1028,11 @@ let pollTimer = null;
 let fastDeadline = 0;
 let fastCap = 0;
 
-// 未就绪 = 仍有平台处于「尚未完成首次采集」（冷启动或刚添加的平台）
+// 未就绪 = 仍有平台处于「尚未完成首次采集」（冷启动或刚添加的平台），
+// 或处于「缓存数据」态（刚从 cache.json 恢复，等本轮采集刷新，v0.2.4）
 function isUnsettled(s) {
-  return !!(s && (s.providers || []).some(p => p.error && p.error.code === 'NOT_COLLECTED_YET'));
+  return !!(s && (s.providers || []).some(p =>
+    p.status === 'cached' || (p.error && p.error.code === 'NOT_COLLECTED_YET')));
 }
 
 function enterFastPoll() {
@@ -1008,7 +1070,10 @@ async function pollNow(force) {
   try {
     const j = await api('/api/quotas');
     const provs = j.providers || [];
-    const okCount = provs.filter(p => p.status === 'ok').length;
+    // 有数据 = ok 或 cached（缓存数据也是数据，v0.2.4）；停用平台不计入分母
+    const active = provs.filter(p => p.status !== 'disabled');
+    const disabledCount = provs.length - active.length;
+    const okCount = active.filter(p => p.status === 'ok' || p.status === 'cached').length;
     const key = j.revision + '|' + j.collected_at;
     const changed = force || key !== lastKey;
     if (changed) {
@@ -1018,15 +1083,60 @@ async function pollNow(force) {
       renderFooter();
       if (view === 'detail') renderDetail();
     }
-    setConn('home', provs.length === 0 ? '' : (okCount ? 'ok' : 'err'),
-      provs.length === 0 ? '尚无平台' : `${okCount}/${provs.length} 个平台有数据`);
+    let summary = '尚无平台';
+    if (provs.length) {
+      summary = active.length
+        ? `${okCount}/${active.length} 个平台有数据` + (disabledCount ? `（${disabledCount} 个已停用）` : '')
+        : `${disabledCount} 个平台全部已停用`;
+    }
+    // 平台全部停用属用户主动状态，不该亮红点
+    setConn('home', (provs.length === 0 || active.length === 0) ? '' : (okCount ? 'ok' : 'err'), summary);
     renderPollInfo();
   } catch (e) {
     setConn('home', 'err', '连接服务端失败');
   }
 }
 
-/* ---------- 设置面板 ---------- */
+/* ---------- 设置面板（v0.2.4 双标签：平台管理 / 账户安全） ---------- */
+let settingsTab = 'platform';
+
+// switchSettingsTab 切换设置面板标签：编辑平台相关的动作按钮只在「平台管理」出现。
+function switchSettingsTab(t) {
+  settingsTab = t;
+  $('#stabPlatform').classList.toggle('active', t === 'platform');
+  $('#stabAccount').classList.toggle('active', t === 'account');
+  $('#panePlatform').classList.toggle('active', t === 'platform');
+  $('#paneAccount').classList.toggle('active', t === 'account');
+  $('#testBtn').style.display = t === 'platform' ? '' : 'none';
+  $('#delProvBtn').style.display = t === 'platform' ? '' : 'none';
+  if (t === 'account') renderAccountPane();
+}
+
+// renderAccountPane 账户安全标签的登录态文案与按钮（默认密码警示也在此复述一遍）。
+function renderAccountPane() {
+  const a = (cfgView && cfgView.auth) || {};
+  const admin = a.mode === 'admin';
+  const authed = !!a.authenticated;
+  const btn = $('#acctAuthBtn');
+  btn.style.display = admin ? '' : 'none';
+  btn.textContent = authed ? '登出' : '登录';
+  let msg;
+  if (!admin) {
+    msg = '鉴权模式为 <b>none</b>：无鉴权，任何可访问者均可查看并修改配置。<br>如需保护配置，切到 <b>admin</b> 并设置管理密码。';
+  } else if (authed) {
+    msg = a.password_is_default
+      ? '已登录。<b>当前仍是默认密码，请立即修改</b>（默认密码已随源码公开，等于无保护）。'
+      : '已登录，可修改配置与密码。';
+  } else {
+    msg = '未登录：可查看看板，修改配置或密码需先登录。';
+  }
+  $('#acctState').innerHTML = msg;
+  $('#sPassword').disabled = admin && !authed;
+  $('#sPasswordTip').textContent = !admin
+    ? 'none 模式下密码不参与鉴权（仍会保存，切回 admin 即生效）'
+    : authed ? '留空 = 不修改；修改后立即生效，无需重启' : '未登录：修改密码需先登录';
+}
+
 async function openSettings() {
   // 每次打开都取最新配置：PUT 是全量替换，避免用过期视图覆盖服务端新状态
   try { await refreshCfgView(); } catch (e) { toast('加载配置失败'); return; }
@@ -1040,6 +1150,7 @@ async function openSettings() {
   $('#settingsError').textContent = '';
   renderProvList();
   renderEditForm();
+  switchSettingsTab('platform');
   $('#settingsModal').classList.add('open');
 }
 function renderProvList() {
@@ -1048,7 +1159,8 @@ function renderProvList() {
   (cfgView.providers || []).forEach(p => {
     const div = document.createElement('div');
     div.className = 'prov-item' + (p.id === editingId ? ' active' : '');
-    div.innerHTML = `<span class="prov-name">${esc(p.name)}${p.has_token ? ' ✓' : ''}</span><span class="del" title="删除">✕</span>`;
+    const offTag = p.enabled === false ? '<span class="off-tag">停用</span>' : '';
+    div.innerHTML = `<span class="prov-name">${esc(p.name)}${p.has_token ? ' ✓' : ''}</span>${offTag}<span class="del" title="删除">✕</span>`;
     div.onclick = e => {
       if (e.target.classList.contains('del')) return;
       flushForm();
@@ -1069,9 +1181,10 @@ function renderProvList() {
 }
 function renderEditForm() {
   const p = (cfgView.providers || []).find(x => x.id === editingId);
-  if (!p) { $('#fName').value = ''; $('#fBase').value = ''; $('#fPaths').value = ''; $('#fHeaders').value = ''; $('#fToken').value = ''; $('#fId').value = ''; return; }
+  if (!p) { $('#fName').value = ''; $('#fBase').value = ''; $('#fPaths').value = ''; $('#fHeaders').value = ''; $('#fToken').value = ''; $('#fId').value = ''; $('#fEnabled').checked = true; return; }
   $('#fId').value = p.id;
   $('#fName').value = p.name;
+  $('#fEnabled').checked = p.enabled !== false; // 视图恒输出 enabled；缺字段按启用（v0.2.4）
   $('#fBase').value = p.base_url;
   $('#fAuthStyle').value = p.auth_style || 'bearer';
   $('#fPaths').value = (p.paths || []).join('\n');
@@ -1090,6 +1203,7 @@ function flushForm() {
   p.name = $('#fName').value.trim() || p.name;
   p.base_url = $('#fBase').value.trim();
   p.auth_style = $('#fAuthStyle').value;
+  p.enabled = $('#fEnabled').checked; // v0.2.4：勾选框 → PUT enabled（未勾选 = false）
   p.paths = $('#fPaths').value.split('\n').map(s => s.trim()).filter(Boolean);
   if (!p.paths.length) p.paths = ['/'];
   p._tokenInput = $('#fToken').value;
@@ -1112,6 +1226,7 @@ function buildPutBody() {
       id: p.id, name: p.name, base_url: p.base_url,
       paths: p.paths, auth_style: p.auth_style || 'bearer',
       extra_headers: p.extra_headers || {},
+      enabled: p.enabled !== false,
     };
     if (p._tokenInput) o.token = p._tokenInput;
     return o;
@@ -1203,6 +1318,7 @@ async function doLogin() {
     toast('已登录');
     await refreshCfgView();
     renderEditForm();
+    if (settingsTab === 'account') renderAccountPane();
   } catch (e) {
     let msg = e.message;
     if (e.code === 'INVALID_CREDENTIALS') msg = '密码错误';
@@ -1237,6 +1353,12 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 $('#settingsBtn').onclick = openSettings;
+$('#stabPlatform').onclick = () => switchSettingsTab('platform');
+$('#stabAccount').onclick = () => switchSettingsTab('account');
+$('#acctAuthBtn').onclick = () => {
+  if (cfgView && cfgView.auth && cfgView.auth.authenticated) doLogout();
+  else openLogin('');
+};
 $('#closeModalBtn').onclick = () => $('#settingsModal').classList.remove('open');
 $('#settingsModal').addEventListener('click', e => { if (e.target === e.currentTarget) e.target.classList.remove('open'); });
 $('#saveBtn').onclick = saveSettings;
@@ -1245,7 +1367,7 @@ $('#addProvBtn').onclick = () => {
   flushForm();
   if (!cfgView.providers) cfgView.providers = []; // null 兜底（服务端已根治为 []，防旧会话视图）
   const id = 'new-' + Date.now().toString(36);
-  cfgView.providers.push({ id, name: '新平台', base_url: 'https://', paths: ['/'], auth_style: 'bearer', extra_headers: {}, has_token: false });
+  cfgView.providers.push({ id, name: '新平台', base_url: 'https://', paths: ['/'], auth_style: 'bearer', extra_headers: {}, has_token: false, enabled: true });
   editingId = id;
   renderProvList();
   renderEditForm();

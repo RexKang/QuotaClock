@@ -24,6 +24,8 @@ type Scheduler struct {
 	states   map[string]*ProviderState
 	backoffs map[string]*Backoff
 
+	cache CacheWriter // 上次成功数据落盘出口（nil = 不启用缓存，v0.2.4）
+
 	wake chan struct{} // 热生效唤醒：配置保存后尽快开跑下一 tick（验收 #9 ≤1 轮询周期红字的前提）
 
 	clock  func() time.Time
@@ -54,6 +56,45 @@ func NewScheduler(cfg *config.Runtime, store *Store, client *Client) *Scheduler 
 
 func defaultRand(n int) int { return rand.IntN(n) }
 
+// SetCacheWriter 挂载缓存落盘出口（main 装配；nil = 不写缓存）。
+func (s *Scheduler) SetCacheWriter(w CacheWriter) {
+	s.mu.Lock()
+	s.cache = w
+	s.mu.Unlock()
+}
+
+// SeedCached 用 cache.json 恢复的状态填充「尚未完成首次采集」的空态（v0.2.4，启动时调用一次）：
+// 只覆盖未采集态（NOT_COLLECTED_YET）与既有缓存态，绝不覆盖真实采集结果。
+func (s *Scheduler) SeedCached(cached []ProviderState) int {
+	if len(cached) == 0 {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range cached {
+		st := cached[i]
+		if s.defs[st.ID] == nil {
+			continue // 配置里已不存在
+		}
+		cur := s.states[st.ID]
+		if cur == nil {
+			continue
+		}
+		notCollected := cur.Status == StatusFailed && cur.Error != nil && cur.Error.Code == CodeNotCollectedYet
+		if cur.Status != StatusCached && !notCollected {
+			continue // 已有真实结果，缓存不覆盖
+		}
+		cp := st
+		s.states[st.ID] = &cp
+		n++
+	}
+	if n > 0 {
+		s.publishLocked()
+	}
+	return n
+}
+
 // Reload 热生效：换配置指针并重建调度状态（设计 §11）——
 // 未变 provider 保留退避计数与最近结果；变更/新增重置；被删的取消调度；
 // 重建期间在途 fetch 照常完成，数据归属已删 id 的丢弃。
@@ -61,6 +102,7 @@ func (s *Scheduler) Reload(cfg *config.Runtime) {
 	s.mu.Lock()
 	s.cfg.Store(cfg)
 	s.reloadLocked(cfg)
+	s.saveCacheLocked() // 平台删除/停用后缓存立即收敛（不在 states 中即被剔出）
 	s.mu.Unlock()
 	logx.Infof("采集器已按新配置重建（%d 个平台）", len(cfg.Providers))
 	// 唤醒主循环：下一 tick 立即开跑（新配置即刻参与采集；验收 #9 失败态传播时限的前提）
@@ -83,6 +125,10 @@ func (s *Scheduler) reloadLocked(cfg *config.Runtime) {
 			// key.bin 丢失/不匹配的降级（设计 §6.4）：token_invalid，不 crash
 			st.Status = StatusTokenInvalid
 			st.Error = &ErrorInfo{Code: CodeTokenDecryptFail, Message: "token 无法解密，请在设置中重新录入"}
+		} else if !p.IsEnabled() {
+			// v0.2.4：停用平台灰显，错误码 DISABLED（前端识别渲染「已停用」徽标）
+			st.Status = StatusDisabled
+			st.Error = &ErrorInfo{Code: CodeDisabled, Message: "平台已停用"}
 		} else {
 			st.Status = StatusFailed
 			st.Error = &ErrorInfo{Code: CodeNotCollectedYet, Message: "尚未完成首次采集"}
@@ -101,8 +147,12 @@ func (s *Scheduler) reloadLocked(cfg *config.Runtime) {
 }
 
 // sameDefinition 判断 provider 定义是否变化（token 变 → TokenCipher 变 → 重置）。
+// enabled 也算定义变化：勾选/取消停用要立刻重建状态，否则卡片不会实时显示「已停用」（v0.2.4）。
 func sameDefinition(a, b *config.RuntimeProvider) bool {
 	if a.Name != b.Name || a.BaseURL != b.BaseURL || a.AuthStyle != b.AuthStyle || a.TokenCipher != b.TokenCipher {
+		return false
+	}
+	if a.IsEnabled() != b.IsEnabled() {
 		return false
 	}
 	if len(a.Paths) != len(b.Paths) {
@@ -197,7 +247,7 @@ type job struct {
 	delay time.Duration
 }
 
-// planTickLocked 计算「应采集」集合：非停采/解密失败态 且 退避未到期；
+// planTickLocked 计算「应采集」集合：跳过停用/解密失败态 且 退避未到期；
 // 第 k 个平台的启动延迟 = 前 k-1 项 rand(stagger) 之和（首个平台立即启动，C-col-05）。
 func (s *Scheduler) planTickLocked(cfg *config.Runtime) []job {
 	now := s.clock()
@@ -206,6 +256,9 @@ func (s *Scheduler) planTickLocked(cfg *config.Runtime) []job {
 	for _, p := range cfg.Providers {
 		if p.DecryptFailed {
 			continue // token 无法解密：停采态
+		}
+		if !p.IsEnabled() {
+			continue // v0.2.4：平台停用（enabled=false）不参与采集
 		}
 		b := s.backoffs[p.ID]
 		if b == nil || !b.Eligible(now) {
@@ -324,6 +377,25 @@ func (s *Scheduler) collectProvider(ctx context.Context, p *config.RuntimeProvid
 	}
 	s.states[p.ID] = &st
 	s.publishLocked()
+	if st.Status == StatusOK {
+		// 只有真实成功才刷新缓存（失败态同上：保留上次成功数据，不覆写）
+		s.saveCacheLocked()
+	}
+}
+
+// saveCacheLocked 用当前状态集投递缓存快照（调用方持锁；非阻塞，落盘在后台 goroutine）。
+func (s *Scheduler) saveCacheLocked() {
+	if s.cache == nil {
+		return
+	}
+	cfg := s.cfg.Load()
+	states := make([]ProviderState, 0, len(cfg.Providers))
+	for _, p := range cfg.Providers {
+		if st := s.states[p.ID]; st != nil {
+			states = append(states, *st)
+		}
+	}
+	s.cache.Save(CacheFromStates(s.clock(), states))
 }
 
 func priorData(p *ProviderState) json.RawMessage {

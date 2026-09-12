@@ -60,6 +60,18 @@ func DefaultCollector() Collector {
 // DefaultListen 返回 PRD 默认监听（127.0.0.1:8787）。
 func DefaultListen() Listen { return Listen{Host: "127.0.0.1", Port: 8787} }
 
+// BoolPtr 返回 v 的地址（构造 *bool 字段用）。
+func BoolPtr(v bool) *bool { return &v }
+
+// CopyBoolPtr 复制 *bool（nil 透传）：避免落盘视图与请求体/运行时共享同一指针。
+func CopyBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
 // ---------- 落盘形态 ----------
 
 // FileAuth 落盘 auth 段：仅 bcrypt hash，永不落明文。
@@ -77,7 +89,11 @@ type FileProvider struct {
 	AuthStyle    string            `json:"auth_style,omitempty"`    // 缺省 bearer
 	ExtraHeaders map[string]string `json:"extra_headers,omitempty"` // S2 增量
 	TokenCipher  string            `json:"token_cipher,omitempty"`
+	Enabled      *bool             `json:"enabled,omitempty"` // v0.2.4 恢复：nil = 启用（兼容旧配置缺字段）
 }
+
+// IsEnabled 返回该 provider 是否参与采集（nil 缺省视为启用，兼容旧配置）。
+func (p *FileProvider) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
 
 // File 配置文件落盘形态。
 type File struct {
@@ -108,6 +124,7 @@ type ViewProvider struct {
 	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
 	HasToken     bool              `json:"has_token"`
 	TokenMasked  string            `json:"token_masked,omitempty"`
+	Enabled      bool              `json:"enabled"` // v0.2.4：无 omitempty，false 也输出（nil→true 已在 BuildView 归一）
 }
 
 // View GET /api/config 响应全集（PUT 全量替换的回传素材）。
@@ -130,7 +147,11 @@ type PutProvider struct {
 	AuthStyle    string            `json:"auth_style,omitempty"`
 	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
 	Token        string            `json:"token,omitempty"`
+	Enabled      *bool             `json:"enabled,omitempty"` // nil = 启用（前端未勾选传输 false）
 }
+
+// IsEnabled 请求体语义同落盘：nil = 启用（兼容旧客户端不传该字段）。
+func (p *PutProvider) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
 
 // PutAuth 请求中的 auth 段：Password 为仅输入明文（空 = 保留原 hash）。
 type PutAuth struct {
@@ -150,6 +171,8 @@ type Put struct {
 // ---------- 运行时视图（内存，含解密 token） ----------
 
 // RuntimeProvider 运行期 provider：Token 仅存在于内存。
+// Enabled 用 *bool：nil = 启用（与落盘层同语义）。零值结构体因此默认「启用」，
+// 杜绝「构造时忘记赋值 → 静默停采」这类零值陷阱（v0.2.4 回归项）。
 type RuntimeProvider struct {
 	ID           string
 	Name         string
@@ -158,12 +181,16 @@ type RuntimeProvider struct {
 	AuthStyle    string
 	ExtraHeaders map[string]string
 	TokenCipher  string
+	Enabled      *bool
 	Token        string // 解密明文；DecryptFailed 时为空
 	TokenMasked  string // 内存 hint（设计 D-5）
 	// DecryptFailed 表示 token_cipher 解密失败（key.bin 丢失/不匹配）：
 	// 采集器应将其标记 token_invalid（错误码 TOKEN_DECRYPT_FAILED），不 crash（设计 §6.4）。
 	DecryptFailed bool
 }
+
+// IsEnabled 返回该 provider 是否参与采集（nil 缺省视为启用）。
+func (p *RuntimeProvider) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
 
 // Runtime 配置的运行时视图，热生效即整体换指针。
 type Runtime struct {

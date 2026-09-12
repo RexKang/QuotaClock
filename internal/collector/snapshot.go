@@ -24,6 +24,7 @@ const (
 	CodeRateLimited      = "RATE_LIMITED"
 	CodeClientError      = "CLIENT_ERROR"
 	CodeBizError         = "BIZ_ERROR"
+	CodeDisabled         = "DISABLED" // v0.2.4：enabled=false
 )
 
 // ProviderStatus 取值。
@@ -31,13 +32,15 @@ const (
 	StatusOK           = "ok"
 	StatusFailed       = "failed"
 	StatusTokenInvalid = "token_invalid"
+	StatusDisabled     = "disabled" // v0.2.4：enabled=false 平台
+	StatusCached       = "cached"   // v0.2.4：启动时由 cache.json 恢复的上次成功数据（等首轮采集刷新）
 )
 
 // ProviderState 快照内单 provider 渲染态（不可变，整体替换）。
 type ProviderState struct {
 	ID            string
 	Name          string
-	Status        string // ok | failed | token_invalid
+	Status        string // ok | failed | token_invalid | disabled | cached
 	Data          json.RawMessage
 	LastSuccessAt *time.Time
 	Error         *ErrorInfo

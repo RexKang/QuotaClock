@@ -5,7 +5,7 @@
 后台常驻采集器定时拉取各平台用量，浏览器访问 `http://127.0.0.1:8787` 即可打开看板，
 无需任何本地配置；一份服务端配置全设备共享。
 
-![Version](https://img.shields.io/badge/Version-0.2.3-blue)
+![Version](https://img.shields.io/badge/Version-0.2.4-blue)
 ![Platform](https://img.shields.io/badge/Platform-智谱%20%7C%20DeepSeek%20%7C%20Kimi%20%7C%20OpenCode-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
@@ -13,9 +13,12 @@
 
 - **多平台额度总览**：智谱 GLM / DeepSeek / Kimi Code / OpenCode（平台差异全部走配置，可自行增删）
 - **后台常驻采集**：默认 300s + 5~25s 抖动定时拉取，平台间 1~5s 错峰；页面只读服务端缓存
+- **上次成功数据缓存**：每次成功采集后写入 `cache.json`，**重启服务端后页面立刻显示上次数据**（徽标「缓存数据」，首轮采集到了自动转「正常」），不再回到空白等待
+- **平台可停用**：设置里取消勾选「启用该平台」即停采（灰显「已停用」），比删掉再重建更省事
 - **失败语义区分**：token 失效红字提示并停采；网络失败按指数退避（×2 封顶 30min），429 按 Retry-After 顺延
 - **配置加密落盘**：token 以 AES-256-GCM 加密存 `config.json`，密钥为随机生成的 `key.bin`，配置与日志中永不出现明文
 - **两档鉴权**：`admin`（查看公开、修改须登录）/ `none`（全开放，本机自用）
+- **设置分两个标签**：「平台管理」（平台列表/编辑/采集与服务参数）与「账户安全」（鉴权模式/改密码/登录态）
 - **热生效**：保存配置后采集器立即按新配置重建；仅监听地址/端口需重启
 
 ## 快速开始
@@ -38,7 +41,7 @@ quotaclock.exe            # Windows（双击亦可）
 ```
 
 4. 浏览器打开 `http://127.0.0.1:8787` → 「设置」→「登录」（默认密码 `Quota@2026090S`）→
-   添加平台并填入 token → 保存，采集器即刻开始拉取。
+   添加平台并填入 token → 保存，采集器即刻开始拉取。设置面板分「平台管理」与「账户安全」两个标签。
 
 > ⚠️ 首次登录后请立即在设置中修改管理密码。
 
@@ -70,7 +73,7 @@ v0.1 是纯前端单文件页面（配置存 localStorage）。迁移走**旁路
 | 直连地址（如 open.bigmodel.cn） | 原样导入 | `baseURL`→`base_url`，endpoints 仅取 GET |
 | 指向其他本机代理端口 | **跳过 + WARN** | 不猜不改写；请手动添加真实上游地址 |
 
-v0.1 的 `enabled=false` 平台不导入（v0.2 无 enabled 概念）；endpoint 的 JSON 参数不迁移（如需 query 请并入 path）。
+v0.1 的 `enabled=false` 平台**导入并保持停用**（v0.2.4 起恢复 enabled 概念：停用平台不采集、卡片灰显「已停用」，到设置里勾选「启用该平台」即可开始采集）；endpoint 的 JSON 参数不迁移（如需 query 请并入 path）。
 
 > **端口提示**：v0.1 的 kimi/opencode 依赖 Python 代理 `llm-proxy.py`（127.0.0.1:8787），
 > v0.2 服务端直连后**不再需要代理**。v0.2 默认也监听 8787——迁移前请先关闭代理，
@@ -95,14 +98,17 @@ v0.1 的 `enabled=false` 平台不导入（v0.2 无 enabled 概念）；endpoint
     "paths": ["/user/balance"],
     "auth_style": "bearer",                    // bearer | cookie（缺省 bearer）
     "extra_headers": {},                       // 逐条并入请求头，可覆盖默认头
+    "enabled": false,                          // 缺省 = 启用；false = 停用（不采集，v0.2.4）
     "token_cipher": "…"                        // 服务端自管，勿手写
   }]
 }
 ```
 
 - 推荐在设置页修改（保存即原子写盘 + 热生效）；token 留空 = 保留原值
+- `enabled` 缺省即启用（旧配置无需改动）；停用的平台不参与采集、卡片灰显「已停用」
 - 手工编辑 `config.json` 亦受支持，但请先停止程序（运行中保存会覆盖手改）
-- `config.json` / `key.bin` / `quotaclock-*.lock` 为运行时文件，已列入 .gitignore，切勿外传
+- `config.json` / `key.bin` / `quotaclock-*.lock` / `cache.json` 为运行时文件，已列入 .gitignore，切勿外传
+- **回退旧版本**：v0.2.4 之前的二进制读含 `enabled` 字段的 `config.json` 会因「未知字段」拒绝启动；回退前请先删除该字段（或删掉停用平台）
 
 ## 启动参数
 
@@ -164,10 +170,15 @@ quotaclock -admin-password 新密码
 # 日志提示「管理员密码已重置」，随后正常启动，用新密码登录
 ```
 
+### 恢复路径 ③：想清掉看板里的「上次成功数据」
+
+`cache.json` 只存上次成功采集的展示数据（无 token），**随时可删**：
+停止程序 → 删除 `cache.json` → 重启，看板回到「等待首次采集」状态（首轮采集结束后照常出数）。
+
 ## 隐私与安全
 
 - token 明文只存在于内存；落盘为 AES-256-GCM 密文；日志全链路脱敏（明文/密文/掩码/会话 cookie 永不入日志）
-- 后端只读硬约束：唯一写路径是配置保存；文件系统白名单仅 `config.json` / `key.bin` / 锁文件 / `*.tmp`
+- 后端只读硬约束：唯一写路径是配置保存；文件系统白名单仅 `config.json` / `key.bin` / 锁文件 / `cache.json`（仅存展示数据，不含 token）/ `*.tmp`
 - 会话 cookie：HttpOnly + SameSite=Lax，7 天有效；登出立即失效（重启后旧登出 cookie 至多存活至自然过期，单管理员场景已接受的取舍）
 - CORS 红线：服务端不发送任何 CORS 头；`/api/login` 仅接受 JSON（CSRF 三道防线）
 - `auth.mode=none` 表示全开放（任何可访问者可查看/修改配置），页面顶部常驻警示
@@ -182,6 +193,10 @@ quotaclock -admin-password 新密码
 **怎么看原始返回？**
 「详情」页可查看每个平台的状态、上次成功采集时间与原始 JSON。
 
+**重启后卡片显示「缓存数据」？**
+那是在读上次成功采集的结果（`cache.json`），首轮采集一到就会转「正常」；想强制立即刷新，点页面右上「刷新」。
+若卡片一直显示「已停用」，说明该平台在设置里被取消了勾选（设置 → 平台管理 → 勾选「启用该平台」）。
+
 **能加新的平台吗？**
 可以。设置 →「+ 添加平台」→ 填 Base URL、鉴权方式、路径、token。只要返回 JSON 含
 `balance` / `total_balance` / `percentage` / `used`/`limit` 等字段，看板会自动识别展示。
@@ -192,7 +207,7 @@ quotaclock -admin-password 新密码
 ## 构建
 
 ```bash
-go build -ldflags "-s -w -X main.version=v0.2.3" -o quotaclock ./cmd/quotaclock
+go build -ldflags "-s -w -X main.version=v0.2.4" -o quotaclock ./cmd/quotaclock
 go test ./...                        # 单元 + 集成（-race 建议）
 python scripts/e2e.py ./quotaclock   # E2E 演练（需要 python3）
 ```

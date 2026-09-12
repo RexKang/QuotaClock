@@ -33,6 +33,9 @@ old-config.json
 key.bin
 quotaclock-*.lock
 
+# 运行时缓存（上次成功数据，含平台用量数据；v0.2.4）
+cache.json
+
 # 构建产物
 bin/
 dist/

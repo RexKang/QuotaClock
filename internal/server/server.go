@@ -445,6 +445,7 @@ func (s *Server) mergeForSave(old *config.File, put *config.Put) (*config.File, 
 			Paths:        append([]string(nil), pp.Paths...),
 			AuthStyle:    pp.AuthStyle,
 			ExtraHeaders: pp.ExtraHeaders,
+			Enabled:      config.CopyBoolPtr(pp.Enabled),
 		}
 		switch {
 		case pp.Token != "":
