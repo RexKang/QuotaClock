@@ -28,7 +28,9 @@ const (
 type LoadResult struct {
 	State LoadState
 	File  *config.File // StateOK / StateCreatedTemplate 时非 nil
-	Raw   []byte       // StateNeedsMigration 时的原文
+	Raw   []byte       // StateNeedsMigration* 时的原文
+	// OldVersion 检测到的旧配置版本号（仅迁移态有意义）：迁移前备份文件按它命名
+	OldVersion int
 }
 
 // BadConfigError 坏配置：启动必须打印具体错误与文件路径后退出（不静默降级，PRD §4.5）。
@@ -80,9 +82,9 @@ func LoadFile(path string) (*LoadResult, error) {
 		}
 		switch version {
 		case 2:
-			return &LoadResult{State: StateNeedsMigration, Raw: raw}, nil
+			return &LoadResult{State: StateNeedsMigration, Raw: raw, OldVersion: version}, nil
 		case 3:
-			return &LoadResult{State: StateNeedsMigrationV3, Raw: raw}, nil
+			return &LoadResult{State: StateNeedsMigrationV3, Raw: raw, OldVersion: version}, nil
 		default:
 			return nil, &BadConfigError{Path: path, Msg: fmt.Sprintf("version %d 不受支持（支持 2=v0.1、3=v0.2.x 迁移，或 %d）", version, config.CurrentVersion)}
 		}

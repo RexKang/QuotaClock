@@ -1,7 +1,7 @@
 // Package persist 收敛 QuotaClock 的全部落盘写入（只读硬约束的代码结构落实，设计 §1-2）：
 // 白名单 = config.json、key.bin（由 crypto 包写）、quotaclock-*.lock（由 lock 包写）、
-// cache.json（上次成功数据缓存，v0.2.4 新增）、*.tmp（原子写临时）。
-// 其余代码不持有写盘能力。
+// cache.json（上次成功数据缓存，v0.2.4 新增）、<config>.v<N>.bak（迁移前备份，v0.2.5 新增）、
+// *.tmp（原子写临时）。其余代码不持有写盘能力。
 package persist
 
 import (
@@ -83,4 +83,63 @@ func LockNameOf(configAbsPath string) string {
 func IsLockFile(path string) bool {
 	base := filepath.Base(path)
 	return strings.HasPrefix(base, LockPrefix) && strings.HasSuffix(base, LockSuffix)
+}
+
+// ---------- 迁移前备份（v0.2.5） ----------
+
+// BackupSuffix 备份文件后缀：<config 文件名>.v<旧版本>.bak（重复迁移时再追加 -2/-3…）。
+// 已被 .gitignore 的 *.bak 覆盖（备份内含 token 密文，绝不可入库）。
+const BackupSuffix = ".bak"
+
+// BackupConfig 在迁移改写落盘**之前**把原配置文件原样备份一份，返回备份路径。
+//
+// 为什么要备份：迁移是不可逆的结构改写（v0.1/v0.2.x → 平台预设结构），一旦写盘就
+// 只剩新结构；旧文件里可能还有用户手工维护的信息（旧 paths、备注、停用状态）。
+// 备份按旧版本号命名，便于人工核对与回退；同名时追加 -2/-3…，绝不覆盖既有备份。
+//
+// 内容是原文件的**原始字节**（不重新序列化）——备份要能代表「改写前它长什么样」。
+// 注意：v0.1（version 2）的备份会保留明文 token（原文件本就是明文），
+// 调用方应提示用户核对后删除。
+func BackupConfig(path string, oldVersion int) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("读取原配置失败: %s: %w", path, err)
+	}
+	dest := fmt.Sprintf("%s.v%d%s", path, oldVersion, BackupSuffix)
+	for i := 2; ; i++ {
+		if _, serr := os.Stat(dest); os.IsNotExist(serr) {
+			break
+		}
+		dest = fmt.Sprintf("%s.v%d-%d%s", path, oldVersion, i, BackupSuffix)
+	}
+	if err := AtomicWrite(dest, raw); err != nil {
+		return "", fmt.Errorf("写出备份失败: %s: %w", dest, err)
+	}
+	return dest, nil
+}
+
+// IsBackupFile 判断一个路径是否属于备份文件白名单（<config>.v<N>.bak / <config>.v<N>-<K>.bak）。
+func IsBackupFile(path string) bool {
+	base := filepath.Base(path)
+	if !strings.HasSuffix(base, BackupSuffix) {
+		return false
+	}
+	rest := strings.TrimSuffix(base, BackupSuffix)
+	i := strings.LastIndex(rest, ".v")
+	if i < 0 {
+		return false
+	}
+	num := rest[i+2:]
+	if dash := strings.LastIndex(num, "-"); dash >= 0 {
+		num = num[:dash]
+	}
+	if num == "" {
+		return false
+	}
+	for _, r := range num {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

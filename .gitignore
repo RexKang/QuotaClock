@@ -36,6 +36,9 @@ quotaclock-*.lock
 # 运行时缓存（上次成功数据，含平台用量数据；v0.2.4）
 cache.json
 
+# 迁移前自动备份（v0.2.5；内容为旧版 config.json，含 token 密文/明文，严禁入库）
+# 由上面 *.bak 覆盖，此处仅作说明
+
 # 构建产物
 bin/
 dist/

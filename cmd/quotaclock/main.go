@@ -88,12 +88,28 @@ func main() {
 
 	file := res.File
 	switch res.State {
-	case persist.StateNeedsMigration:
-		migrated, logs, merr := config.MigrateV1(res.Raw, func(plain string) (string, error) {
-			return crypto.SealToken(key, plain)
-		})
+	case persist.StateNeedsMigration, persist.StateNeedsMigrationV3:
+		var migrated *config.File
+		var logs []string
+		var merr error
+		if res.State == persist.StateNeedsMigration {
+			migrated, logs, merr = config.MigrateV1(res.Raw, func(plain string) (string, error) {
+				return crypto.SealToken(key, plain)
+			})
+		} else {
+			migrated, logs, merr = config.MigrateV3(res.Raw)
+		}
 		if merr != nil {
 			fatal("%v", merr)
+		}
+		// 迁移是不可逆的结构改写：写盘前先把原文件整份备份（备份失败即中止，不冒险丢配置）
+		backup, berr := persist.BackupConfig(absPath, res.OldVersion)
+		if berr != nil {
+			fatal("迁移前备份配置失败，已中止迁移（原文件未改动）: %v", berr)
+		}
+		logx.Infof("已备份迁移前的配置 → %s", backup)
+		if res.OldVersion == 2 {
+			logx.Warnf("注意：该备份内含 v0.1 的明文 token，核对无误后请删除 %s", backup)
 		}
 		for _, line := range logs {
 			logLine(line)
@@ -102,20 +118,7 @@ func main() {
 			fatal("迁移配置写盘失败: %v", err)
 		}
 		file = migrated
-		logx.Infof("v0.1 配置迁移完成，已升版至 version %d → %s", config.CurrentVersion, absPath)
-	case persist.StateNeedsMigrationV3:
-		migrated, logs, merr := config.MigrateV3(res.Raw)
-		if merr != nil {
-			fatal("%v", merr)
-		}
-		for _, line := range logs {
-			logLine(line)
-		}
-		if err := persist.SaveConfig(absPath, migrated); err != nil {
-			fatal("迁移配置写盘失败: %v", err)
-		}
-		file = migrated
-		logx.Infof("配置迁移完成（v0.2.x → v0.2.5 平台预设结构），已升版至 version %d → %s", config.CurrentVersion, absPath)
+		logx.Infof("配置迁移完成（version %d → %d），已升版 → %s", res.OldVersion, config.CurrentVersion, absPath)
 	}
 
 	// -interval / -addr / -port 覆盖（flag > config）

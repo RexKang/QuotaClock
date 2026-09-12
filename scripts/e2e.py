@@ -368,6 +368,17 @@ def scenario_migration(binpath, mock):
         log = inst.log()
         check("迁移 INFO 对照日志", "迁移改写" in log and "api.kimi.com/coding/v1" in log and "zen/go/v1" in log)
         check("迁移后为默认密码态（红 banner 条件）", "正在使用默认密码" in log)
+
+        # 迁移前备份（v0.2.5）：原文件整份留档，命名带旧版本号
+        bak = cfg + ".v2.bak"
+        check("迁移前已备份原配置 config.json.v2.bak", os.path.exists(bak), json.dumps(os.listdir(d)))
+        check("备份日志可见", "已备份迁移前的配置" in log)
+        with open(bak, encoding="utf-8") as f:
+            bakdoc = json.load(f)
+        check("备份内容 = 迁移前的原文件（version 2）", bakdoc["version"] == 2 and len(bakdoc["providers"]) == 6)
+        check("v0.1 备份含明文 token → 有删除提示 WARN",
+              "明文 token" in log and "请删除" in log)
+        check("主配置已升版（备份不影响主文件）", mig["version"] == 4)
     finally:
         inst.kill()
     return d
@@ -459,6 +470,18 @@ def scenario_migrate_v3(binpath, mock):
               sp["opencode.opencode-m1"]["status"] == "ok", json.dumps(sp.get("opencode.opencode-m1"))[:200])
         check("迁移后停用凭据为 disabled", sp["opencode.opencode-m2"]["status"] == "disabled",
               json.dumps(sp.get("opencode.opencode-m2"))[:200])
+
+        # 迁移前备份（v0.2.5）：v0.2.x 的配置文件整份留档，可用于人工回退
+        bak = cfg + ".v3.bak"
+        check("迁移前已备份原配置 config.json.v3.bak", os.path.exists(bak), json.dumps(os.listdir(d)))
+        with open(bak, encoding="utf-8") as f:
+            bakdoc = json.load(f)
+        check("备份 = 迁移前原文件（version 3 + 一 key 一 provider 形态）",
+              bakdoc["version"] == 3 and [p["id"] for p in bakdoc["providers"]] == ["opencode-m1", "opencode-m2"])
+        check("备份内保留原始字段（base_url/paths 仍可查）",
+              bakdoc["providers"][0]["base_url"] == "https://opencode.ai/zen/go/v1"
+              and bakdoc["providers"][0]["paths"] == ["/usage"])
+        check("备份与主文件互不影响", mig["version"] == 4 and bakdoc["version"] == 3)
     finally:
         inst.kill()
     return d
@@ -610,6 +633,7 @@ def scenario_enabled_and_cache(binpath, d, port, cfg, mock):
         allowed = all(re.fullmatch(r"config\d*\.json", x) is not None
                       or x in ("key.bin", "cache.json")
                       or (x.startswith("quotaclock-") and x.endswith(".lock"))
+                      or re.fullmatch(r"config\d*\.json\.v\d+(-\d+)?\.bak", x) is not None  # 迁移前备份（v0.2.5）
                       or x.endswith(".tmp") for x in files)
         check("写盘白名单：目录内仅运行时白名单文件（含 cache.json）", allowed, json.dumps(files))
 
