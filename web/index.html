@@ -921,15 +921,18 @@ function quotaCardHtml(it, provId) {
 }
 
 /* ---------- 详情页（原始数据视图） ---------- */
+// 详情同样只展示在采平台（v0.2.4）：停用平台在「设置 → 平台管理」里管理
 function renderDetail() {
-  const provs = (snap && snap.providers) || [];
+  const all = (snap && snap.providers) || [];
+  const provs = all.filter(p => p.status !== 'disabled');
+  const disabledCount = all.length - provs.length;
   const prov = provs.find(p => p.id === detailId) || provs[0];
   const sel = $('#providerSel');
   sel.innerHTML = '';
   for (const p of provs) {
     const o = document.createElement('option');
     o.value = p.id;
-    o.textContent = p.name + (p.status === 'ok' ? ' ✓' : p.status === 'cached' ? ' · 缓存' : p.status === 'disabled' ? ' · 已停用' : '');
+    o.textContent = p.name + (p.status === 'ok' ? ' ✓' : p.status === 'cached' ? ' · 缓存' : '');
     sel.appendChild(o);
   }
   if (prov) sel.value = prov.id;
@@ -937,8 +940,10 @@ function renderDetail() {
   const raw = $('#rawData');
   if (!prov) {
     kpiBox.innerHTML = '';
-    raw.textContent = '暂无平台数据';
-    setConn('detail', '', '无数据');
+    raw.textContent = all.length
+      ? '所有平台都已停用——「详情」只展示在用平台，到「设置 → 平台管理」勾选「启用该平台」即可恢复'
+      : '暂无平台：先到「设置」里添加一个平台';
+    setConn('detail', '', all.length ? `${disabledCount} 个平台全部已停用` : '无数据');
     return;
   }
   detailId = prov.id;
@@ -946,7 +951,6 @@ function renderDetail() {
   const okCls = (prov.status === 'ok' || prov.status === 'cached') ? 'ok' : 'err';
   const statusText = prov.status === 'ok' ? '正常'
     : prov.status === 'cached' ? '缓存数据（待本轮刷新）'
-    : prov.status === 'disabled' ? '已停用'
     : prov.status === 'token_invalid' ? 'token 失效' : '采集失败';
   kpiBox.innerHTML = `
     <div class="kpi"><div class="label">状态</div><div class="value ${okCls}">${esc(statusText)}</div></div>
@@ -956,11 +960,9 @@ function renderDetail() {
     <div class="kpi"><div class="label">路径</div><div class="value" style="font-size:15px">${esc((cv.paths || []).join(' , '))}</div></div>
     <div class="kpi"><div class="label">鉴权方式</div><div class="value">${esc(cv.auth_style || 'bearer')}</div></div>`;
   raw.textContent = prov.data === null || prov.data === undefined ? '（暂无数据：尚未成功采集）' : pretty(resolveData(prov.data));
-  const active = provs.filter(p => p.status !== 'disabled');
-  const withData = active.filter(p => p.status === 'ok' || p.status === 'cached').length;
-  setConn('detail', okCls, active.length
-    ? withData + '/' + active.length + ' 个平台有数据' + (provs.length - active.length ? `（${provs.length - active.length} 个已停用）` : '')
-    : '全部平台已停用');
+  const withData = provs.filter(p => p.status === 'ok' || p.status === 'cached').length;
+  setConn('detail', okCls,
+    withData + '/' + provs.length + ' 个平台有数据' + (disabledCount ? `（${disabledCount} 个已停用，未显示）` : ''));
 }
 
 /* ---------- 视图切换 ---------- */
