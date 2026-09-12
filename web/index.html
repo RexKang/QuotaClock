@@ -141,6 +141,9 @@
   /* 平台列表里的停用标记（v0.2.4） */
   .prov-item .off-tag { font-size: 13px; color: var(--warn); border: 1px solid rgba(251,191,36,.4); border-radius: 10px; padding: 0 7px; margin-left: 6px; flex: none; }
   .prov-item.active .off-tag { color: #fff; border-color: rgba(255,255,255,.6); }
+  /* 未配置 token 的告警标记（v0.2.4；替代原先恒显的 ✓） */
+  .prov-item .miss-tag { font-size: 13px; color: var(--err); border: 1px solid rgba(248,113,113,.4); border-radius: 10px; padding: 0 7px; margin-left: 6px; flex: none; }
+  .prov-item.active .miss-tag { color: #fff; border-color: rgba(255,255,255,.6); }
 
   /* 设置面板双标签：平台管理 / 账户安全（v0.2.4） */
   .settings-tabs { display: flex; gap: 4px; background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 16px; width: fit-content; }
@@ -1160,7 +1163,9 @@ function renderProvList() {
     const div = document.createElement('div');
     div.className = 'prov-item' + (p.id === editingId ? ' active' : '');
     const offTag = p.enabled === false ? '<span class="off-tag">停用</span>' : '';
-    div.innerHTML = `<span class="prov-name">${esc(p.name)}${p.has_token ? ' ✓' : ''}</span>${offTag}<span class="del" title="删除">✕</span>`;
+    // 有 token 不再显示 ✓（与「停用」并排会被误读成启用状态）；只在缺失时告警——缺 token 必然采集失败
+    const tokTag = p.has_token ? '' : '<span class="miss-tag">无 token</span>';
+    div.innerHTML = `<span class="prov-name">${esc(p.name)}</span>${tokTag}${offTag}<span class="del" title="删除">✕</span>`;
     div.onclick = e => {
       if (e.target.classList.contains('del')) return;
       flushForm();
