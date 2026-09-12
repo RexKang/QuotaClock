@@ -617,6 +617,30 @@ def scenario_enabled_and_cache(binpath, d, port, cfg, mock):
         check("停用凭据不发请求（5s 内上游计数不变）", mock.hits == hits_before,
               f"{hits_before}→{mock.hits}")
 
+        # v0.2.5 r4.1：只改 API Key 的名称不该触发重新采集（名称是纯展示字段）
+        on_last = sp["opencode.on"]["last_success_at"]
+        rename_put = json.loads(json.dumps(put))
+        rename_put["providers"][0]["access_keys"][0]["name"] = "改名后的 Key"
+        for k in rename_put["providers"][0]["access_keys"]:
+            k.pop("token", None)  # 改名时用户不会重填 token（保留原密文，等价于真实操作）
+        hits_before = mock.hits
+        code, _, _ = http("PUT", base + "/api/config", rename_put, auth)
+        check("只改名称的 PUT 200", code == 200)
+        snap = wait_snapshot(base, lambda s: {p["id"]: p for p in s["providers"]}.get(
+            "opencode.on", {}).get("name") == "OpenCode · 改名后的 Key", timeout=10)
+        sp2 = {p["id"]: p for p in snap["providers"]}
+        check("改名后快照立即换名", sp2["opencode.on"]["name"] == "OpenCode · 改名后的 Key",
+              json.dumps(sp2["opencode.on"])[:160])
+        check("改名不改采集状态（仍 ok / 不进等待采集）",
+              sp2["opencode.on"]["status"] == "ok", json.dumps(sp2["opencode.on"])[:160])
+        check("改名不动 last_success_at", sp2["opencode.on"]["last_success_at"] == on_last,
+              f"{on_last} → {sp2['opencode.on']['last_success_at']}")
+        t0 = time.time()
+        while time.time() - t0 < 5:
+            time.sleep(0.25)
+        check("只改名称不触发重新采集（5s 内上游计数不变）", mock.hits == hits_before,
+              f"{hits_before}→{mock.hits}")
+
         # cache.json：白名单 + 内容（只含启用凭据的成功数据、无 token）
         cache_path = os.path.join(d, "cache.json")
         t0 = time.time()

@@ -54,9 +54,23 @@ func (b *Backoff) OnRateLimited(now time.Time, retryAfterS *int, baseS, mult, ma
 }
 
 // OnSuccess 成功：计数清零、nextAttemptAt 清零（立即恢复基准间隔）。
+// 用于**平台级**退避：平台恢复后立刻解开全部 key 的闸门，把调度节奏交回 key 自己
+// （key 级周期由 OnSuccessAt 排期；若这里也排期，会让同平台第二个 key 的等分偏移被推迟一轮）。
 func (b *Backoff) OnSuccess() {
 	b.fails = 0
 	b.nextAttemptAt = time.Time{}
+}
+
+// OnSuccessAt 成功并按周期排下一次（v0.2.5 r4.1）：计数清零 + nextAttemptAt = now + period。
+//
+// 为什么 key 级不能像平台级那样清零：主循环除周期性 tick 外，还会被「保存配置」唤醒
+// （Reload → wake → 立即 runTick）。清成零时任何一次额外 tick 都会把已经采到的 key 再采一遍
+// ——用户实测：只改了一个 API Key 的名称，采集也整体重跑了一轮（状态虽然保留，
+// 但上游实打实多打了一次）。按「该 key 的采集周期」排期后，热更不打断既有节奏。
+// 从未采集过的 key、以及 token/地址等定义变更后重建的 key（&Backoff{} 零值）不受影响：仍然立即采集。
+func (b *Backoff) OnSuccessAt(now time.Time, period time.Duration) {
+	b.fails = 0
+	b.nextAttemptAt = now.Add(period)
 }
 
 // Stop token 失效停采：不参与后续调度，直到热更重建该 provider。

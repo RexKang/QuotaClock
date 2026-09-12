@@ -123,7 +123,13 @@ func (s *Scheduler) reloadLocked(cfg *config.Runtime) {
 		newDefs[p.ID] = p
 		if old := s.defs[p.ID]; old != nil && !p.DecryptFailed &&
 			s.states[p.ID] != nil && s.backoffs[p.ID] != nil && sameDefinition(old, p) {
-			continue // 未变：保留退避与历史
+			// 未变：保留退避与历史。**仅展示名变化**时同步名称即可——
+			// 采集状态（status/data/last_success_at）与退避节奏都不重置，
+			// 下一轮仍按原节奏来；快照因 name 变化推 revision，前端自动重绘（PRD r2.3 ⑤）。
+			if st := s.states[p.ID]; st != nil && st.Name != p.Name {
+				st.Name = p.Name
+			}
+			continue
 		}
 		st := &ProviderState{ID: p.ID, Name: p.Name}
 		if !p.IsEnabled() {
@@ -167,8 +173,10 @@ func (s *Scheduler) reloadLocked(cfg *config.Runtime) {
 
 // sameDefinition 判断 provider 定义是否变化（token 变 → TokenCipher 变 → 重置）。
 // enabled 也算定义变化：勾选/取消停用要立刻重建状态，否则卡片不会实时显示「已停用」（v0.2.4）。
+// **Name 不算**（v0.2.5 r4.1）：名称是纯展示字段，改名不该把已采到的数据打回「等待采集」
+// 并立刻重采——用户实测：只改了一个 API Key 的名称，采集却整个重跑了一遍。
 func sameDefinition(a, b *config.RuntimeProvider) bool {
-	if a.Name != b.Name || a.BaseURL != b.BaseURL || a.AuthStyle != b.AuthStyle || a.TokenCipher != b.TokenCipher {
+	if a.BaseURL != b.BaseURL || a.AuthStyle != b.AuthStyle || a.TokenCipher != b.TokenCipher {
 		return false
 	}
 	if a.IsEnabled() != b.IsEnabled() {
@@ -458,7 +466,13 @@ func (s *Scheduler) collectProvider(ctx context.Context, p *config.RuntimeProvid
 		logx.Warnf("采集 %s：token 失效，已停采", p.ID)
 	case len(okIdx) > 0:
 		now := s.clock()
-		b.OnSuccess()
+		// key 级成功：按「该 key 的等分周期」排下一次（不是清零）——避免「保存配置」唤醒的
+		// 额外 tick 立刻重采。周期取 keyPeriodS（单 key 平台 = interval_base_s；同平台 N 个
+		// key = interval_base_s ÷ N）：这是「同一个 key 两次请求之间的最小间距」。
+		// 不能用 interval_base_s——同平台第 2 个 key 的请求本来就在 tick 内偏移 base/N 处发出，
+		// 若再等整个 base 才算到期，它会被下一轮整个跳过，采集频率减半。
+		// 注意节奏由 tick 决定（tick 周期 ≥ base），这里只是一道「别在同一周期内重复采」的闸门。
+		b.OnSuccessAt(now, time.Duration(s.keyPeriodS(cfg, p))*time.Second)
 		// 平台恢复：清掉平台级退避（任一 key 成功即视为平台可用）
 		if pb := s.platformBackoffs[p.Platform]; pb != nil {
 			pb.OnSuccess()
