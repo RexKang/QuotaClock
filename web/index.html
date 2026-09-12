@@ -77,8 +77,6 @@
   .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
   .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
   .prov-card-head .badge.warn { background: rgba(251,191,36,.12); color: var(--warn); border-color: rgba(251,191,36,.3); }
-  /* 已停用平台：整卡压暗（v0.2.4） */
-  .prov-card.disabled { opacity: .58; }
   .prov-card-head .go-detail { font-size: 20px; color: var(--muted); cursor: pointer; padding: 4px 12px; user-select: none; border-radius: 8px; margin-left: auto; }
   .prov-card-head .go-detail:hover { color: var(--accent); background: var(--card2); }
   .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
@@ -716,22 +714,25 @@ function renderHomeGrid() {
   const grid = $('#homeGrid');
   grid.innerHTML = '';
   retryAt = {};
-  const provs = (snap && snap.providers) || [];
-  $('#emptyHome').style.display = provs.length ? 'none' : 'block';
+  const all = (snap && snap.providers) || [];
+  // 停用平台不上首页（v0.2.4）：首页只展示在采平台；停用项在「设置 → 平台管理」与「详情」下拉里可见
+  const provs = all.filter(p => p.status !== 'disabled');
+  const empty = $('#emptyHome');
+  empty.style.display = provs.length ? 'none' : 'block';
+  empty.textContent = all.length
+    ? `所有平台都已停用（共 ${all.length} 个）。到「设置 → 平台管理」勾选「启用该平台」即可恢复采集~`
+    : '还没有配置任何平台。到「设置」里添加一个平台的 token，保存后采集器会自动拉取数据~';
   for (const prov of provs) {
     const card = document.createElement('div');
-    card.className = 'prov-card' + (prov.status === 'disabled' ? ' disabled' : '');
+    card.className = 'prov-card';
     const badge = prov.status === 'ok' ? `<span class="badge ok">正常</span>`
       : prov.status === 'cached' ? `<span class="badge warn">缓存数据</span>`
-      : prov.status === 'disabled' ? `<span class="badge">已停用</span>`
       : prov.status === 'token_invalid' ? `<span class="badge err">token 失效</span>`
       : `<span class="badge err">采集失败</span>`;
 
     // 错误分类文案（红字与失败文案严格区分；倒计时按 retry_after_s 前端计算）
     let errNote = '';
-    if (prov.status === 'disabled') {
-      errNote = `<div class="pending-note">平台已停用，不参与采集（设置 → 平台管理 → 勾选「启用该平台」）</div>`;
-    } else if (prov.status === 'cached') {
+    if (prov.status === 'cached') {
       errNote = `<div class="pending-note">显示上次成功采集的数据${prov.last_success_at ? '（' + esc(fmtTime(prov.last_success_at)) + '）' : ''}，等待本轮采集刷新...</div>`;
     } else if (prov.status === 'token_invalid') {
       errNote = `<div class="err-note">${esc((prov.error && prov.error.message) || 'token 失效，请在设置中更新')}</div>`;
@@ -1073,10 +1074,10 @@ async function pollNow(force) {
   try {
     const j = await api('/api/quotas');
     const provs = j.providers || [];
-    // 有数据 = ok 或 cached（缓存数据也是数据，v0.2.4）；停用平台不计入分母
-    const active = provs.filter(p => p.status !== 'disabled');
-    const disabledCount = provs.length - active.length;
-    const okCount = active.filter(p => p.status === 'ok' || p.status === 'cached').length;
+    // 有数据 = ok 或 cached（缓存数据也是数据，v0.2.4）；停用平台不上首页，只计入「已停用」提示
+    const visible = provs.filter(p => p.status !== 'disabled');
+    const disabledCount = provs.length - visible.length;
+    const okCount = visible.filter(p => p.status === 'ok' || p.status === 'cached').length;
     const key = j.revision + '|' + j.collected_at;
     const changed = force || key !== lastKey;
     if (changed) {
@@ -1088,12 +1089,12 @@ async function pollNow(force) {
     }
     let summary = '尚无平台';
     if (provs.length) {
-      summary = active.length
-        ? `${okCount}/${active.length} 个平台有数据` + (disabledCount ? `（${disabledCount} 个已停用）` : '')
+      summary = visible.length
+        ? `${okCount}/${visible.length} 个平台有数据` + (disabledCount ? `（${disabledCount} 个已停用，未显示）` : '')
         : `${disabledCount} 个平台全部已停用`;
     }
     // 平台全部停用属用户主动状态，不该亮红点
-    setConn('home', (provs.length === 0 || active.length === 0) ? '' : (okCount ? 'ok' : 'err'), summary);
+    setConn('home', (provs.length === 0 || visible.length === 0) ? '' : (okCount ? 'ok' : 'err'), summary);
     renderPollInfo();
   } catch (e) {
     setConn('home', 'err', '连接服务端失败');
