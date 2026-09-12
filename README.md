@@ -63,7 +63,7 @@ quotaclock.exe            # Windows（双击亦可）
 
 ## 从旧版本迁移
 
-v0.1 是纯前端单文件页面（配置存 localStorage）。迁移走**旁路文件**（localStorage 跨源不可读，因此没有导入 UI）：
+v0.1 是**单页 HTML（`index.html`）+ 一个 Python 反向代理（`llm-proxy.py`，本机 8787，绕开各家网关的 CORS 限制）**：解析与渲染全在浏览器里做，配置只存在浏览器 `localStorage`（可「导出 JSON」备份），服务端不存任何东西。迁移走**旁路文件**（localStorage 跨源不可读，因此没有导入 UI）：
 
 1. 从 Release 页下载 **v0.1.0** 中的 `index.html`（或 `git checkout v0.1.0 -- index.html`），浏览器打开（file://）→ 设置 → 「导出 JSON」下载配置
 2. 将导出文件**重命名为 `config.json`**，放到 v0.2 可执行文件同目录
@@ -261,7 +261,7 @@ git tag -a v0.2.5 -m "v0.2.5 …"   # 标签注释也会留在 git 里，方便 
 git push origin v0.2.5
 ```
 
-Release 正文 = 固定下载说明 + **CHANGELOG.md 里该版本的小节（本版重点）** + 两版之间的提交明细（按新增/修复/性能/重构分组，去掉 40 位 SHA，`docs:`/`chore:`/`test:` 不进正文）。CI 里由 `scripts/release_notes.py` 生成后交给 `goreleaser --release-notes`，见 `.github/workflows/ci.yml`；CI 带 `--strict`——**CHANGELOG 里没写这个版本，发布直接失败**（避免又发一条「看起来都一样」的说明）。
+Release 正文 = 按版本给出的下载说明 + **CHANGELOG.md 里该版本的小节（本版重点）** + 两版之间的提交明细（按新增/修复/性能/重构分组，去掉 40 位 SHA，`docs:`/`chore:`/`test:` 不进正文）。CI 里由 `scripts/release_notes.py` 生成后交给 `goreleaser --release-notes`，见 `.github/workflows/ci.yml`；CI 带 `--strict`——**CHANGELOG 里没写这个版本，发布直接失败**（避免又发一条「看起来都一样」的说明）。
 
 ## License
 

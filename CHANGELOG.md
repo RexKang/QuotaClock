@@ -75,7 +75,12 @@ GitHub Release 的正文由 `scripts/release_notes.py` 从本文件 + git 提交
 
 ### 新增
 
-- **Go 单二进制服务端化**：静态页与 API 同进程提供，配置加密落盘（AES-256-GCM + `key.bin`），支持 Windows / Linux（amd64、arm64）。
+- **Go 单二进制服务端化**：把 v0.1 的「单页 + Python 代理」换成静态页与 API 同进程提供，配置从浏览器 `localStorage` 搬到服务端**加密落盘**（AES-256-GCM，密钥为随机生成的 `key.bin`），支持 Windows / Linux（amd64、arm64）。
+
+### 变更
+
+- 浏览器侧不再直连各家平台：请求改由服务端发起（同源 `/api/*`），因此**不再需要 Python 反向代理**、不再受 CORS 限制。
+- 配置入口从浏览器存储变为服务端 `config.json`：v0.1 导出的 JSON 可通过旁路文件迁移（见 README「从旧版本迁移」）。
 
 ### 修复
 
@@ -86,3 +91,5 @@ GitHub Release 的正文由 `scripts/release_notes.py` 从本文件 + git 提交
 ### 新增
 
 - 首个公开版本：多平台用量看板（智谱 GLM / DeepSeek / Kimi / OpenCode），双进度条对比用量与时间基准、卡片可折叠、平台级状态标语、额度耗尽提示与一键切换健康平台。
+- 形态：**单页 HTML（`index.html`）+ Python 标准库写的反向代理（`llm-proxy.py`，`127.0.0.1:8787`，转发并注入 CORS 头，解决 opencode.ai / api.kimi.com 不放行跨域的问题）**。
+- 配置只存浏览器 `localStorage`（刷新不丢），并可「导出 JSON」做备份；平台地址在本机代理与直连之间自行填写。

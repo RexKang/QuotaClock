@@ -38,6 +38,15 @@ HEADER = """## QuotaClock {tag}
 校验和见 `checksums.txt`（sha256）。
 """
 
+# v0.1 是浏览器单页 + Python 反向代理（配置在 localStorage），没有二进制也没有管理密码，
+# 说明文案不能和服务端版本共用。
+HEADER_V1 = """## QuotaClock {tag}
+
+浏览器单页 + Python 反向代理：下载 `index.html` 与 `llm-proxy.py`，`python llm-proxy.py` 起代理后
+用浏览器打开页面即可（file:// 也能用）。
+配置（含 token）只存在浏览器 `localStorage`，可用页面上的「导出 JSON」备份。
+"""
+
 
 def run(*args):
     return subprocess.run(args, cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip()
@@ -66,6 +75,17 @@ def prev_tag(tag):
     if try_run("git", "rev-parse", "--verify", f"{tag}^{{commit}}"):
         return try_run("git", "describe", "--tags", "--abbrev=0", f"{tag}^")
     return try_run("git", "describe", "--tags", "--abbrev=0", "HEAD")
+
+
+def header_for(tag):
+    """按版本挑说明文案：v0.2.0 起是 Go 单二进制服务端，v0.1.x 是浏览器单页 + Python 代理。"""
+    try:
+        major, minor = (int(x) for x in norm(tag).split(".")[:2])
+    except ValueError:
+        return HEADER.format(tag=tag)
+    if (major, minor) < (0, 2):
+        return HEADER_V1.format(tag=tag)
+    return HEADER.format(tag=tag)
 
 
 def changelog_section(tag):
@@ -117,7 +137,7 @@ def main():
     args = ap.parse_args()
 
     tag = args.tag
-    parts = [HEADER.format(tag=tag).rstrip()]
+    parts = [header_for(tag).rstrip()]
 
     section = changelog_section(tag)
     if section:
