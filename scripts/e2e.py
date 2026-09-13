@@ -34,8 +34,11 @@ results = []
 
 
 def check(name, ok, detail=""):
+    # detail 宽松化：断言点上常直接传 p.get("id") / RPC 返回值，可能是 None。
+    # 早先这里直接做字符串拼接，detail=None 时会抛 TypeError 把整轮演练打断 ——
+    # 一条断言失败被放大成「后续场景全部没跑」，定位成本远高于它本身。
     results.append((name, ok, detail))
-    print(("  PASS  " if ok else "  FAIL  ") + name + ("" if ok else "  -> " + detail))
+    print(("  PASS  " if ok else "  FAIL  ") + name + ("" if ok else "  -> " + ("<None>" if detail is None else str(detail))))
 
 
 def free_port():
@@ -160,7 +163,19 @@ class MockUpstream:
             def log_message(self, *a):
                 pass
 
-        self.srv = HTTPServerModule.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        class S(HTTPServerModule.ThreadingHTTPServer):
+            # 被测进程被 kill / 退避重试时会留下半开的连接，ThreadingHTTPServer 默认
+            # 会把这些连接重置打成 "Exception occurred during processing of request"
+            # 一样的 traceback —— 属拆除噪音，不是断言失败，但混在结果里会干扰定位。
+            # 只吞连接类异常，其他异常照常打印。
+            def handle_error(self, request, client_address):
+                import sys
+                et = sys.exc_info()[0]
+                if et in (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, TimeoutError):
+                    return
+                super().handle_error(request, client_address)
+
+        self.srv = S(("127.0.0.1", 0), H)
         self.port = self.srv.server_address[1]
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
 
