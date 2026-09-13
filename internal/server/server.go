@@ -119,6 +119,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 	mux.HandleFunc("POST /api/test", s.requireWrite(s.handleTest))
+	// v0.3.0：导出配置（含明文 token）按敏感端点对待，与 PUT/TEST 同一守卫
+	mux.HandleFunc("GET /api/config/export", s.requireWrite(s.handleExportConfig))
 	return s.recoverMW(s.securityMW(mux))
 }
 
@@ -418,6 +420,21 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "SAVE_FAILED", merr.Error())
 		return
 	}
+	// 旧版配置（version < 当前）：按「迁移」对待 —— 先把目标机器的原配置备份一份再覆盖。
+	// 跨机器搬运时源机器可能是旧版，导出文件里带的版本号就是它的版本；这一路径要能直接吃下。
+	if put.Version > 0 && put.Version < config.CurrentVersion {
+		// 备份名按**被覆盖的那份配置**的版本取（本机当前版本），不是来料的版本号
+		bakVer := config.CurrentVersion
+		if old != nil && old.Version > 0 {
+			bakVer = old.Version
+		}
+		if bak, berr := persist.BackupConfig(s.configPath, bakVer); berr != nil {
+			logx.Warnf("旧版配置导入：备份失败（继续保存）：%v", berr)
+		} else {
+			logx.Infof("按 v%d 旧版配置导入：原配置（v%d）已备份到 %s，将按 v%d 落盘",
+				put.Version, bakVer, bak, config.CurrentVersion)
+		}
+	}
 	if err := persist.SaveConfig(s.configPath, newFile); err != nil {
 		// 磁盘为准：写盘失败内存不变（所见即所得）
 		logx.Errorf("配置写盘失败: %v", err)
@@ -460,6 +477,7 @@ func (s *Server) mergeForSave(old *config.File, put *config.Put) (*config.File, 
 		Version:   config.CurrentVersion,
 		Listen:    put.Listen,
 		Collector: put.Collector,
+		Balance:   config.NormalizeBalance(put.Balance), // v0.3.0：漏了这行会把余额设置写回 0
 		Auth:      config.FileAuth{Mode: put.Auth.Mode, PasswordHash: old.Auth.PasswordHash},
 		Providers: make([]config.FileProvider, 0, len(put.Providers)),
 	}

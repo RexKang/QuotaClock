@@ -304,6 +304,27 @@ type v3File struct {
 // MigrateV3 把 v0.2.0~v0.2.4 的配置（version 3，一 key 一 provider）升到 v0.2.5：
 // 平台按 base_url 推断、同平台多条合并为一条 provider、旧 token 变成第一个凭据。
 // listen / collector / auth / 密码 hash 原样保留（这几段 schema 未变）。
+// MigrateV4 v4 → v5（v0.3.0）：只新增 balance 段（余额展示设置），其余字段原样保留。
+// 之所以仍走「迁移 + 备份」这套：schema 升版就留 .bak 是既有约定（回退只需改回文件名）。
+func MigrateV4(raw []byte) (*File, []string, error) {
+	f, err := ParseFile(raw)
+	if err != nil {
+		return nil, nil, fmt.Errorf("v0.2.x 配置解析失败: %w", err)
+	}
+	added := false
+	if f.Balance.Full <= 0 {
+		f.Balance = DefaultBalance()
+		added = true
+	}
+	f.Version = CurrentVersion
+	logs := []string{}
+	if added {
+		logs = append(logs, fmt.Sprintf("迁移：新增余额展示设置（满额 %g / 绿 ≥%d%% / 黄 ≥%d%%），"+
+			"可在「设置 → 采集与服务」里调整", f.Balance.Full, f.Balance.GreenPct, f.Balance.WarnPct))
+	}
+	return f, logs, nil
+}
+
 func MigrateV3(raw []byte) (*File, []string, error) {
 	var v3 v3File
 	if err := json.Unmarshal(raw, &v3); err != nil {

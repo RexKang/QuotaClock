@@ -88,16 +88,19 @@ func main() {
 
 	file := res.File
 	switch res.State {
-	case persist.StateNeedsMigration, persist.StateNeedsMigrationV3:
+	case persist.StateNeedsMigration, persist.StateNeedsMigrationV3, persist.StateNeedsMigrationV4:
 		var migrated *config.File
 		var logs []string
 		var merr error
-		if res.State == persist.StateNeedsMigration {
+		switch res.State {
+		case persist.StateNeedsMigration:
 			migrated, logs, merr = config.MigrateV1(res.Raw, func(plain string) (string, error) {
 				return crypto.SealToken(key, plain)
 			})
-		} else {
+		case persist.StateNeedsMigrationV3:
 			migrated, logs, merr = config.MigrateV3(res.Raw)
+		default:
+			migrated, logs, merr = config.MigrateV4(res.Raw)
 		}
 		if merr != nil {
 			fatal("%v", merr)

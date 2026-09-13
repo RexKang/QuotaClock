@@ -26,6 +26,8 @@ HTTPServerModule = http.server  # 防止下方 http() 请求函数遮蔽模块�
 BIN = sys.argv[1] if len(sys.argv) > 1 else None
 IS_WIN = os.name == "nt"
 BASE = "http://127.0.0.1"
+# 当前配置 schema 版本（跟随 internal/config.CurrentVersion；升版时改这里）
+CUR_VERSION = 5
 FX1_TOKEN = '<script>&"\'\\中文🚀'  # 特殊字符 token（验收 #16 脱敏红线）
 
 results = []
@@ -180,7 +182,7 @@ def scenario_first_start(binpath, mock):
     check("空配置快照 providers 空", snap["providers"] == [])
     with open(cfg, encoding="utf-8") as f:
         created = json.load(f)
-    check("模板 version=4", created["version"] == 4)
+    check("模板 version=%d" % CUR_VERSION, created["version"] == CUR_VERSION)
     check("模板 auth=admin + providers 空", created["auth"]["mode"] == "admin" and created["providers"] == [])
     locks = [x for x in os.listdir(d) if x.startswith("quotaclock-") and x.endswith(".lock")]
     check("锁文件已创建", len(locks) == 1)
@@ -344,7 +346,7 @@ def scenario_migration(binpath, mock):
         with open(cfg, encoding="utf-8") as f:
             mig = json.load(f)
         s = json.dumps(mig)
-        check("迁移升版 version=4", mig["version"] == 4)
+        check("迁移升版 version=%d" % CUR_VERSION, mig["version"] == CUR_VERSION)
         check("迁移后无明文 token", not any(x in s for x in
               ["fake-zhipu-token", "sk-fake-bbbb", "sk-fake-kimi", "Fe26.2**fake", "sk-fake-d2", "sk-fake-c"]))
         byplat = {p["platform"]: p for p in mig["providers"]}
@@ -378,14 +380,14 @@ def scenario_migration(binpath, mock):
         check("备份内容 = 迁移前的原文件（version 2）", bakdoc["version"] == 2 and len(bakdoc["providers"]) == 6)
         check("v0.1 备份含明文 token → 有删除提示 WARN",
               "明文 token" in log and "请删除" in log)
-        check("主配置已升版（备份不影响主文件）", mig["version"] == 4)
+        check("主配置已升版（备份不影响主文件）", mig["version"] == CUR_VERSION)
     finally:
         inst.kill()
     return d
 
 
 def scenario_migrate_v3(binpath, mock):
-    """v0.2.x（version 3）→ v0.2.5（version 4）：本版本最主流的升级路径。
+    """v0.2.x（version 3）→ 当前版本：最常见的升级路径。
 
     密文必须是真的（能解）才能验证「采集照常」——故先用被测程序自己 PUT 一份带 token 的 v4 配置
     拿到密文，再把文件降级改写成 v3 形态（一 key 一 provider），重启验证迁移。
@@ -444,7 +446,7 @@ def scenario_migrate_v3(binpath, mock):
         inst.wait_ready()
         with open(cfg, encoding="utf-8") as f:
             mig = json.load(f)
-        check("v3 → v4 已升版", mig["version"] == 4)
+        check("v3 → 当前版本已升版", mig["version"] == CUR_VERSION)
         check("listen/collector 原样保留",
               mig["listen"]["host"] == "127.0.0.1" and mig["listen"]["port"] == port
               and mig["collector"]["interval_base_s"] == 30)
@@ -481,7 +483,7 @@ def scenario_migrate_v3(binpath, mock):
         check("备份内保留原始字段（base_url/paths 仍可查）",
               bakdoc["providers"][0]["base_url"] == "https://opencode.ai/zen/go/v1"
               and bakdoc["providers"][0]["paths"] == ["/usage"])
-        check("备份与主文件互不影响", mig["version"] == 4 and bakdoc["version"] == 3)
+        check("备份与主文件互不影响", mig["version"] == CUR_VERSION and bakdoc["version"] == 3)
     finally:
         inst.kill()
     return d
@@ -715,6 +717,131 @@ def scenario_startup_time(binpath):
         inst.kill()
 
 
+def scenario_v030(binpath, mock):
+    """v0.2.5（version 4）→ v0.3.0（version 5）迁移 + 配置导出/导入契约。
+
+    v0.3.0 新增三件事要在这里钉住：
+      1. schema 4 → 5：只多 balance 段（余额展示设置），迁移前必须留 .v4.bak；
+      2. GET /api/config/export：需登录、no-store、**含明文 token**（跨机器搬运的唯一可行形态）、
+         且导出的文件能原样回灌 PUT（`_note` 被容忍）——这是「导入后只改部分 Key」的地基；
+      3. balance 经完整链路落盘（回归：mergeForSave 漏字段会静默写回 0）。
+    """
+    print("\n== 场景 9：v4 → v5 迁移（余额设置）+ 配置导出/导入（v0.3.0） ==")
+    d = tempfile.mkdtemp(prefix="qc-e2e-v4-")
+    port = free_port()
+    cfg = os.path.join(d, "config.json")
+    base = base_of(port)
+    seed_token = "sk-e2e-v4-seed-T0KEN"
+
+    # ① 先用程序自身产出一份 v5 配置（拿到真密文），再降级改写成 v4（去掉 balance 段）
+    inst0 = Instance(binpath, cfg, port, upstream=mock.url())
+    try:
+        inst0.wait_ready()
+        _, hdr, _ = http("POST", base + "/api/login", {"password": "Quota@2026090S"})
+        cookie = re.search(r"qc_session=([^;]+)", hdr.get("Set-Cookie", "")).group(1)
+        auth = {"Cookie": "qc_session=" + cookie}
+        seed = {
+            "version": 5,
+            "listen": {"host": "127.0.0.1", "port": port},
+            "collector": {"interval_base_s": 30, "jitter_min_s": 5, "jitter_max_s": 25,
+                          "stagger_min_s": 1, "stagger_max_s": 5, "backoff_multiplier": 2, "backoff_max_s": 1800},
+            "balance": {"full": 100, "green_pct": 50, "warn_pct": 20},
+            "auth": {"mode": "admin"},
+            "providers": [{"platform": "opencode", "access_keys": [
+                {"id": "seed", "name": "seed", "token": seed_token}]}],
+        }
+        code, _, _ = http("PUT", base + "/api/config", seed, auth)
+        check("准备阶段：PUT v5 成功（产出真密文）", code == 200)
+    finally:
+        inst0.kill()
+    with open(cfg, encoding="utf-8") as f:
+        doc = json.load(f)
+    cipher = doc["providers"][0]["access_keys"][0]["token_cipher"]
+    hash_before = doc["auth"]["password_hash"]
+
+    v4 = {k: v for k, v in doc.items() if k != "balance"}
+    v4["version"] = 4
+    with open(cfg, "w", encoding="utf-8") as f:
+        json.dump(v4, f, ensure_ascii=False)
+
+    # ② 重启 → v4 迁移到 v5
+    inst = Instance(binpath, cfg, port, upstream=mock.url())
+    try:
+        inst.wait_ready()
+        with open(cfg, encoding="utf-8") as f:
+            mig = json.load(f)
+        check("v4 → v5 已升版", mig["version"] == CUR_VERSION)
+        check("balance 补默认（满额 100 / 绿 50 / 黄 20）",
+              mig.get("balance") == {"full": 100, "green_pct": 50, "warn_pct": 20}, json.dumps(mig.get("balance")))
+        check("其余字段原样保留（listen/collector/密码 hash）",
+              mig["listen"]["port"] == port and mig["collector"]["interval_base_s"] == 30
+              and mig["auth"]["password_hash"] == hash_before)
+        check("凭据密文原样保留（不重加密）",
+              mig["providers"][0]["access_keys"][0]["token_cipher"] == cipher)
+        bak = cfg + ".v4.bak"
+        ok_bak = os.path.exists(bak)
+        if ok_bak:
+            with open(bak, encoding="utf-8") as f:
+                ok_bak = json.load(f)["version"] == 4
+        check("迁移前留 config.json.v4.bak（内容为 v4）", ok_bak)
+        check("迁移 INFO 日志（含余额设置提示）", "v4" in inst.log() and "余额" in inst.log())
+        snap = wait_snapshot(base, lambda s: {p["id"]: p for p in s["providers"]}.get(
+            "opencode.seed", {}).get("status") == "ok", timeout=30)
+        sp = {p["id"]: p for p in snap["providers"]}
+        check("迁移后采集照常（密文可解）", sp["opencode.seed"]["status"] == "ok",
+              json.dumps(sp.get("opencode.seed"))[:200])
+
+        # ③ 导出契约
+        code, _, _ = http("GET", base + "/api/config/export")
+        check("导出：未登录被拒（401）", code == 401, str(code))
+        code, hdr, ex = http("GET", base + "/api/config/export", None, auth)
+        check("导出：登录后 200", code == 200)
+        check("导出：no-store 且带附件文件名", hdr.get("Cache-Control") == "no-store"
+              and "attachment" in (hdr.get("Content-Disposition") or "")
+              and "quotaclock-config-" in (hdr.get("Content-Disposition") or ""),
+              json.dumps({k: v for k, v in hdr.items() if k.lower().startswith(("cache", "content-disp"))}))
+        check("导出：含 _note / version / balance",
+              "_note" in ex and ex.get("version") == 5 and ex.get("balance", {}).get("full") == 100)
+        tokens = [k.get("token") for p in ex.get("providers", []) for k in p.get("access_keys", [])]
+        check("导出：token 为明文", seed_token in tokens, json.dumps(tokens)[:120])
+        check("导出：不含密文与密码 hash",
+              "token_cipher" not in json.dumps(ex) and "password_hash" not in json.dumps(ex))
+        check("导出：enabled 显式给布尔（导入方不靠默认值）",
+              all(isinstance(k.get("enabled"), bool) for p in ex["providers"] for k in p["access_keys"]))
+
+        # ④ 导出文件原样回灌（导入的地基：PUT 必须容忍 _note 这类附带字段）
+        back = {k: v for k, v in ex.items() if k != "_note"}
+        back["balance"] = {"full": 150, "green_pct": 60, "warn_pct": 30}
+        code, _, resp = http("PUT", base + "/api/config", back, auth)
+        check("导出文件能直接回灌 PUT（_note 被容忍）", code == 200, json.dumps(resp)[:200])
+
+        # ⑤ 余额落盘 + 视图一致（mergeForSave 回归）
+        with open(cfg, encoding="utf-8") as f:
+            after = json.load(f)
+        check("balance 落盘为 150/60/30",
+              after.get("balance") == {"full": 150, "green_pct": 60, "warn_pct": 30}, json.dumps(after.get("balance")))
+        _, _, view = http("GET", base + "/api/config")
+        check("GET /api/config 视图与落盘一致", view.get("balance", {}).get("full") == 150, json.dumps(view.get("balance")))
+        # 注意：不能断言密文不变 —— 同一明文重新加密会得到不同密文（AES-GCM 随机 nonce，属正常）。
+        # 该验的是「明文没被写坏」：再导一次，token 仍是原值，且密文确实换了一份。
+        _, _, ex2 = http("GET", base + "/api/config/export", None, auth)
+        toks2 = [k.get("token") for p in ex2.get("providers", []) for k in p.get("access_keys", [])]
+        check("回灌后 token 明文未变（重新导出核对）", toks2 == [seed_token], json.dumps(toks2)[:120])
+        check("回灌后密文已重新生成（随机 nonce，非逐字节沿用）",
+              after["providers"][0]["access_keys"][0]["token_cipher"] != cipher)
+
+        # ⑥ 非法余额被拒
+        bad = json.loads(json.dumps(back))
+        bad["balance"] = {"full": 100, "green_pct": 20, "warn_pct": 80}
+        code, _, _ = http("PUT", base + "/api/config", bad, auth)
+        check("非法余额（黄 > 绿）被拒 400", code == 400, str(code))
+        bad["balance"] = {"full": 100, "green_pct": 50, "warn_pct": 20}
+        code, _, _ = http("PUT", base + "/api/config", bad, auth)
+        check("合法余额（非默认值）放行", code == 200, str(code))
+    finally:
+        inst.kill()
+
+
 def main():
     if not BIN or not os.path.exists(BIN):
         print("用法: python scripts/e2e.py <quotaclock 可执行文件>")
@@ -733,6 +860,7 @@ def main():
         scenario_graceful(binpath, d, port, cfg)
         scenario_migration(binpath, mock)
         scenario_migrate_v3(binpath, mock)
+        scenario_v030(binpath, mock)
         scenario_enabled_and_cache(binpath, d, port, cfg, mock)
         scenario_startup_time(binpath)
     finally:

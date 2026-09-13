@@ -10,8 +10,9 @@ package config
 import "strconv"
 
 // CurrentVersion 是当前配置 schema 版本
-// （2 = v0.1，3 = v0.2.0~v0.2.4，4 = v0.2.5：平台预设 + 同平台多 key）。
-const CurrentVersion = 4
+// （2 = v0.1，3 = v0.2.0~v0.2.4，4 = v0.2.5：平台预设 + 同平台多 key，
+// 5 = v0.3.0：新增余额展示设置 balance）。
+const CurrentVersion = 5
 
 // AuthMode 常量。
 const (
@@ -47,6 +48,24 @@ type Collector struct {
 	BackoffMultiplier int `json:"backoff_multiplier"`
 	BackoffMaxS       int `json:"backoff_max_s"`
 }
+
+// Balance 余额展示设置（v0.3.0）。
+//
+// 余额型平台（当前只有 DeepSeek 的账户余额）没有「周期额度」，只有一笔钱，
+// 于是给它一个**满额基准**：余额 ÷ 满额 = 余额百分比，颜色再按百分比档位取
+// （绿 ≥ GreenPct，黄 ≥ WarnPct，其余红）。满额取 100 时，默认档位等价于
+// 「50 元以上绿、20~50 黄、20 以下红」。
+//
+// 方向与用量相反：余额百分比越高越健康，用量百分比越高越危险——两套规则互不影响。
+// 纯展示参数：服务端只负责存取与校验，渲染在前端。
+type Balance struct {
+	Full     float64 `json:"full"`      // 满额基准（余额达到它即 100%）
+	GreenPct int     `json:"green_pct"` // 绿档下界（%，含）
+	WarnPct  int     `json:"warn_pct"`  // 黄档下界（%，含）；低于它即红
+}
+
+// DefaultBalance 默认：满额 100（元）、绿 ≥50%、黄 ≥20%。
+func DefaultBalance() Balance { return Balance{Full: 100, GreenPct: 50, WarnPct: 20} }
 
 // DefaultCollector 返回 PRD 默认值（300s + 5~25s 抖动，错峰 1~5s，×2 封顶 1800s）。
 func DefaultCollector() Collector {
@@ -112,6 +131,7 @@ type File struct {
 	Version   int            `json:"version"`
 	Listen    Listen         `json:"listen"`
 	Collector Collector      `json:"collector"`
+	Balance   Balance        `json:"balance"` // v0.3.0：余额展示设置
 	Auth      FileAuth       `json:"auth"`
 	Providers []FileProvider `json:"providers"`
 }
@@ -152,6 +172,7 @@ type View struct {
 	Version   int            `json:"version"`
 	Listen    Listen         `json:"listen"`
 	Collector Collector      `json:"collector"`
+	Balance   Balance        `json:"balance"` // v0.3.0：看板渲染余额卡要用
 	Auth      ViewAuth       `json:"auth"`
 	Providers []ViewProvider `json:"providers"`
 	Platforms []ViewPlatform `json:"platforms"` // 内置平台目录（前端下拉用，非敏感）
@@ -197,6 +218,7 @@ type Put struct {
 	Version   int           `json:"version"`
 	Listen    Listen        `json:"listen"`
 	Collector Collector     `json:"collector"`
+	Balance   Balance       `json:"balance"` // v0.3.0
 	Auth      PutAuth       `json:"auth"`
 	Providers []PutProvider `json:"providers"`
 }
@@ -236,6 +258,7 @@ type Runtime struct {
 	Version      int
 	Listen       Listen
 	Collector    Collector
+	Balance      Balance // v0.3.0：随配置热生效
 	AuthMode     string
 	PasswordHash []byte
 	Providers    []*RuntimeProvider

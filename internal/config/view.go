@@ -14,6 +14,7 @@ func BuildRuntime(f *File, masterKey []byte) *Runtime {
 		Version:      f.Version,
 		Listen:       f.Listen,
 		Collector:    f.Collector,
+		Balance:      NormalizeBalance(f.Balance),
 		AuthMode:     f.Auth.Mode,
 		PasswordHash: []byte(f.Auth.PasswordHash),
 	}
@@ -80,6 +81,7 @@ func BuildView(f *File, masks map[string]string, authenticated, passwordIsDefaul
 		Version:   f.Version,
 		Listen:    f.Listen,
 		Collector: f.Collector,
+		Balance:   NormalizeBalance(f.Balance),
 		Auth: ViewAuth{
 			Mode:              f.Auth.Mode,
 			PasswordIsDefault: passwordIsDefault,

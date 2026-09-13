@@ -42,7 +42,10 @@ func TestValidateRules(t *testing.T) {
 		field  string
 		legal  bool
 	}{
-		{"R1 version", func(p *Put) { p.Version = 3 }, "version", false},
+		// r5：旧版本号（1~CurrentVersion）一律接受，按「旧版配置导入」处理（见 server.handlePutConfig）
+		{"R1 version 旧版接受", func(p *Put) { p.Version = 3 }, "version", true},
+		{"R1 version 0 拒绝", func(p *Put) { p.Version = 0 }, "version", false},
+		{"R1 version 未来版本拒绝", func(p *Put) { p.Version = CurrentVersion + 1 }, "version", false},
 		{"R1 version ok", func(p *Put) { p.Version = CurrentVersion }, "version", true},
 		{"R2 port low", func(p *Put) { p.Listen.Port = 0 }, "listen.port", false},
 		{"R2 port high", func(p *Put) { p.Listen.Port = 65536 }, "listen.port", false},
@@ -122,7 +125,7 @@ func TestValidateRules(t *testing.T) {
 }
 
 func TestParseUnknownField(t *testing.T) {
-	body := `{"version":4,"listenn":{"host":"127.0.0.1","port":8787},"collector":{},"auth":{"mode":"admin"},"providers":[]}`
+	body := `{"version":5,"listenn":{"host":"127.0.0.1","port":8787},"collector":{},"auth":{"mode":"admin"},"providers":[]}`
 	if _, err := ParsePut([]byte(body)); err == nil {
 		t.Fatal("未知字段未拒绝")
 	}
@@ -130,19 +133,19 @@ func TestParseUnknownField(t *testing.T) {
 
 func TestParseSensitiveAndComputed(t *testing.T) {
 	// 敏感字段 → 400（token_cipher）
-	sensitive := `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"deepseek","access_keys":[{"id":"k1","token_cipher":"AAAA"}]}]}`
+	sensitive := `{"version":5,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"deepseek","access_keys":[{"id":"k1","token_cipher":"AAAA"}]}]}`
 	if _, err := ParsePut([]byte(sensitive)); err == nil {
 		t.Fatal("token_cipher 直写未拒绝")
 	} else if !strings.Contains(err.Error(), "token_cipher") {
 		t.Fatalf("错误应指出 token_cipher: %v", err)
 	}
-	hashOnly := `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin","password_hash":"$2a$10$xyz"},"providers":[]}`
+	hashOnly := `{"version":5,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin","password_hash":"$2a$10$xyz"},"providers":[]}`
 	if _, err := ParsePut([]byte(hashOnly)); err == nil {
 		t.Fatal("password_hash 直写未拒绝")
 	}
 	// 计算字段 + 只读派生字段（GET 响应整体回传）→ 剥离并通过
 	computed := `{
-		"version":4,"listen":{"host":"127.0.0.1","port":8787},
+		"version":5,"listen":{"host":"127.0.0.1","port":8787},
 		"collector":{"interval_base_s":300,"jitter_min_s":5,"jitter_max_s":25,"stagger_min_s":1,"stagger_max_s":5,"backoff_multiplier":2,"backoff_max_s":1800},
 		"auth":{"mode":"admin","password_is_default":true,"authenticated":false},
 		"providers":[{"platform":"kimi-code","platform_name":"Kimi Code","base_url":"https://api.kimi.com/coding/v1","paths":["/usages"],"auth_style":"bearer","extra_headers":{},"id":"kimi-code","name":"Kimi Code",

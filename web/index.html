@@ -60,6 +60,21 @@
   .status-line .dot.err { background: var(--err); }
   .status-line .dot.run { background: var(--warn); animation: pulse 1s infinite; }
   @keyframes pulse { 50% { opacity: .3; } }
+  /* 导入差异预览表 */
+  .diff-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .diff-table th, .diff-table td { border: 1px solid var(--border); padding: 5px 9px; text-align: left; }
+  .diff-table th { background: var(--card2); color: var(--muted); font-weight: 500; }
+  /* v0.3.0 首页状态条：chip 形式，随窗口宽度自动换行 */
+  .status-line .chip {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px;
+    padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--text); white-space: nowrap;
+  }
+  .status-line .chip.ok { color: var(--ok); border-color: rgba(52,211,153,.3); }
+  .status-line .chip.warn { color: var(--warn); border-color: rgba(251,191,36,.3); }
+  .status-line .chip.err { color: var(--err); border-color: rgba(248,113,113,.35); }
+  .status-line .chip.wait { color: var(--muted); }
+  .status-line .chip.dim { color: var(--muted); }
 
   /* 服务端状态 banner（默认密码 / none 模式 / 0.0.0.0 暴露） */
   .banners { margin-bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
@@ -67,49 +82,87 @@
   .banner.warn { background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.35); color: var(--warn); }
   .banner.err { background: rgba(248,113,113,.10); border-color: rgba(248,113,113,.45); color: var(--err); font-weight: 600; }
 
-  /* 首页：平台额度总览（每平台一行，行内 5小时/周/月 三卡） */
-  .home-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
-  .prov-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
-  .prov-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-  .prov-card-head .name { font-size: 20px; font-weight: 700; cursor: pointer; }
-  .prov-card-head .name:hover { color: var(--accent); }
-  .prov-card-head .badge { font-size: 16px; padding: 3px 9px; border-radius: 20px; background: var(--card2); color: var(--muted); border: 1px solid var(--border); }
-  .prov-card-head .badge.ok { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.3); }
-  .prov-card-head .badge.err { background: rgba(248,113,113,.12); color: var(--err); border-color: rgba(248,113,113,.3); }
-  .prov-card-head .badge.warn { background: rgba(251,191,36,.12); color: var(--warn); border-color: rgba(251,191,36,.3); }
-  /* 等待采集：中性灰（既不是成功也不是错误，避免「新加的 Key 一上来就是红的」） */
-  .prov-card-head .badge.wait { background: rgba(148,163,184,.14); color: var(--muted); border-color: rgba(148,163,184,.32); }
-  .prov-card-head .go-detail { font-size: 20px; color: var(--muted); cursor: pointer; padding: 4px 12px; user-select: none; border-radius: 8px; margin-left: auto; }
-  .prov-card-head .go-detail:hover { color: var(--accent); background: var(--card2); }
-  .quota-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-  .qcard { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; font-size: 16px; }
-  .qcard .q-label { font-size: 16px; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; }
-  .qcard .q-status { margin-left: auto; font-size: 14px; }
-  .qcard .q-percent { font-size: 28px; font-weight: 700; font-family: var(--mono); line-height: 1.1; margin-bottom: 10px; }
-  .qcard .q-percent .pct { font-size: 16px; color: var(--muted); font-weight: 400; }
-  .q-bar { height: 8px; background: #0d0f16; border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
-  .q-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #10b981, #34d399); transition: width .5s; }
-  .q-bar-fill.warn { background: linear-gradient(90deg, var(--warn), #fcd34d); }
-  .q-bar-fill.danger { background: linear-gradient(90deg, var(--err), #fca5a5); }
-  /* 双进度条：上=额度（💲 绿/黄/红），下=时间（🕐 白），图标定宽使两条对齐 */
-  .q-bars { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
-  .q-bar-row { display: flex; align-items: center; gap: 6px; width: 100%; }
-  .q-ico { width: 20px; flex: none; font-size: 14px; text-align: center; line-height: 1; }
-  .q-bars .q-bar { width: 100%; margin-bottom: 0; }
-  .q-bar-fill.time { background: linear-gradient(90deg, #e8edf5, #ffffff); }
-  .q-tpct { font-size: 16px; color: var(--muted); font-family: var(--mono); white-space: nowrap; text-align: right; }
-  .qcard .q-val { font-size: 16px; font-family: var(--mono); color: var(--text); margin-bottom: 6px; }
-  .qcard .q-reset { font-size: 16px; color: var(--warn); font-family: var(--mono); }
-  .qcard.empty .q-percent { color: var(--muted); font-size: 20px; }
-  .prov-card .err-note { font-size: 16px; color: var(--err); margin-top: 8px; }
-  .prov-card .pending-note { font-size: 16px; color: var(--muted); margin-top: 8px; }
+  /* 首页：平台额度总览（v0.3.0 卡片 = 300×268，固定三槽 5h/W/M + 右上角最大区间环 + footer） */
+  .home-grid { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+  .prov-card {
+    width: 300px; height: 268px; flex: none;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .prov-card.collapsed { height: 78px; }
+  .prov-card.state-err { border-color: rgba(248,113,113,.35); }
+  .pc-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; user-select: none; flex: none; }
+  .prov-card:not(.collapsed) .pc-head { border-bottom: 1px solid var(--border); }
+  .prov-card.collapsed .pc-head { padding-bottom: 2px; }
+  .pc-caret { color: var(--muted); font-size: 10px; flex: none; }
+  .pc-head .pc-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pc-head .pc-name:hover { color: var(--accent); }
+  .pc-grow { flex: 1; min-width: 8px; }
+  .pc-refresh {
+    width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--muted); cursor: pointer; font-size: 12px; flex: none;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .pc-refresh:hover { color: var(--fg); border-color: #3a424f; }
+  .pc-refresh.spin { animation: pc-spin .8s linear infinite; }
+  @keyframes pc-spin { to { transform: rotate(360deg); } }
 
-  /* 卡片状态标语：按最高级别给整卡定调（QuotaClock 的「钟声」） */
-  .quota-banner { display: inline-flex; align-items: center; gap: 6px; border-radius: 14px; padding: 4px 14px; margin-left: 6px; font-size: 16px; border: 1px solid; white-space: nowrap; }
-  .quota-banner.sev0 { background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.30); color: var(--ok); }
-  .quota-banner.sev1 { background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.30); color: var(--warn); }
-  .quota-banner.sev2 { background: rgba(248,113,113,.08); border-color: rgba(248,113,113,.30); color: var(--err); }
-  .quota-banner.sev3 { background: rgba(248,113,113,.16); border-color: rgba(248,113,113,.45); color: var(--err); font-weight: 600; }
+  /* 右上角：最大区间利用率环（展开态 46px） */
+  .pc-ring-main { position: relative; width: 46px; height: 46px; flex: none; }
+  .pc-ring-main svg { transform: rotate(-90deg); }
+  .pc-ring-main .val {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: var(--fg); letter-spacing: -.3px;
+  }
+  .pc-ring-main .val i { font-size: 8px; font-style: normal; margin-left: .5px; font-weight: 500; opacity: .85; }
+  .pc-ring-main .val.sm { font-size: 10.5px; }
+  .pc-ring-main .cap {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: -3px;
+    font-size: 9px; color: var(--muted); background: var(--card); padding: 0 3px;
+  }
+
+  /* 收起态：各区间小环（5h / W / M，余额显示金额） */
+  .pc-rings-mini { display: flex; gap: 10px; align-items: center; }
+  .pc-rmini { position: relative; display: flex; align-items: center; gap: 3px; }
+  .pc-rmini svg { transform: rotate(-90deg); flex: none; }
+  .pc-rmini .v { position: absolute; left: 0; width: 30px; text-align: center; font-size: 9px; font-weight: 700; color: var(--fg); }
+  .pc-rmini .l { font-size: 9.5px; color: var(--muted); }
+
+  /* 固定三槽：没数据的槽用「—」占位，但层数与层高与其他卡完全一致（跨卡像素级对齐） */
+  .pc-slots { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .pc-slot {
+    flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; justify-content: center;
+    gap: 3px; padding: 0 12px;
+  }
+  .pc-slot + .pc-slot { border-top: 1px solid #1e242d; }
+  .pc-sh { display: flex; align-items: baseline; gap: 6px; height: 20px; }
+  .pc-sl { font-size: 11.5px; color: #cdd5e2; line-height: 20px; }
+  .pc-sr { font-size: 11px; color: #a3adbd; }
+  .pc-sp { font-size: 13px; font-weight: 700; line-height: 20px; color: #f2f5fa; margin-left: auto; }
+  .pc-slot.pc-empty .pc-sl, .pc-slot.pc-empty .pc-sp { color: #4a5361; font-weight: 500; }  /* 类名加前缀：.empty 是全局空态样式（padding:60px 0），撞上会把槽位撑到 120px */
+  .pc-bar { height: 6px; border-radius: 3px; background: #232a34; overflow: hidden; }
+  .pc-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--ok); }
+  .pc-bar > i.warn { background: var(--warn); }
+  .pc-bar > i.danger { background: var(--err); }
+  .pc-tbar { height: 3px; border-radius: 2px; background: #1d232c; overflow: hidden; }
+  .pc-tbar > i { display: block; height: 100%; background: #6b7684; }
+  .pc-tp { height: 15px; font-size: 10.5px; color: #98a3b3; opacity: 0; transition: opacity .12s; }
+  .pc-slot:hover .pc-tp { opacity: 1; }   /* 时间百分比：hover 才显示（v0.3.0） */
+  .pc-tp b { color: var(--muted); font-weight: 500; }
+  .pc-note { padding: 10px 12px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+  /* footer：状态灯（悬停看原因）+ 该 Key 的采集时间 */
+  .pc-foot {
+    flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+    border-top: 1px solid var(--border); font-size: 11.5px; color: #a3adbd; background: #141821;
+  }
+  .pc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--ok); cursor: help; }
+  .pc-dot.err { background: var(--err); }
+  .pc-dot.wait { background: #6b7684; }
+  .pc-foot .pc-st { color: #cdd5e2; }
+  .pc-foot .pc-st.err { color: var(--err); }
+  .pc-foot .pc-st.wait { color: var(--muted); }
+  .pc-foot .pc-time { margin-left: auto; color: #c3cbd9; font-variant-numeric: tabular-nums; }
 
   /* 详情页 */
   .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
@@ -249,6 +302,28 @@
             <select id="addPlatformSel" title="选择内置平台"></select>
             <button id="addProvBtn" class="ghost">添加</button>
           </div>
+          <hr style="border:none;border-top:1px solid var(--border);margin:14px 0">
+          <div class="add-prov">
+            <button id="exportBtn" class="ghost">导出配置</button>
+            <button id="importBtn" class="ghost">导入配置</button>
+          </div>
+          <div class="tip" style="margin-top:6px">导出默认<b>含明文 API Key</b>（换台机器导入后才能不用重填）</div>
+          <div id="importBox" style="display:none;margin-top:12px">
+            <div class="form-row">
+              <label>选择导出的 JSON 文件</label>
+              <input type="file" id="importFile" accept=".json,application/json">
+            </div>
+            <div class="form-row">
+              <label>或直接粘贴内容</label>
+              <textarea id="importText" rows="5" placeholder='{ "version": 5, "providers": [ ... ] }'
+                style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:var(--mono);font-size:12.5px"></textarea>
+            </div>
+            <div class="add-prov">
+              <button id="importPreviewBtn" class="ghost">预览差异</button>
+              <button id="importApplyBtn">确认导入并保存</button>
+            </div>
+            <div id="importDiff" style="margin-top:10px"></div>
+          </div>
         </div>
         <div>
           <div id="platEmpty" class="empty-plat">左侧选择一个平台进行管理，或从下面选一个平台添加。</div>
@@ -287,6 +362,24 @@
         </div>
       </div>
       <div class="tip" style="font-size:14px;color:var(--muted)">监听地址/端口修改保存后<b>需重启程序</b>才生效</div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
+      <div style="font-size:15px;color:var(--muted);margin-bottom:10px">余额展示（DeepSeek 这类只有账户余额、没有周期额度的平台）</div>
+      <div class="form-cols">
+        <div class="form-row">
+          <label>满额基准</label>
+          <input type="number" id="sBalFull" min="1" step="1">
+          <div class="tip">余额达到这个数就是 100%（按平台币种，如人民币元）</div>
+        </div>
+        <div class="form-row">
+          <label>档位阈值（%）</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="tip">绿 ≥</span><input type="number" id="sBalGreen" min="0" max="100" style="width:80px">
+            <span class="tip">黄 ≥</span><input type="number" id="sBalWarn" min="0" max="100" style="width:80px">
+            <span class="tip">其余红</span>
+          </div>
+          <div class="tip">余额百分比越高越健康（与用量方向相反）：默认 绿 ≥50% / 黄 ≥20%</div>
+        </div>
+      </div>
     </div>
 
     <!-- 标签三：账户安全 -->
@@ -729,127 +822,284 @@ function statusMeta(prov) {
   }
 }
 
+/* ============================================================
+ * v0.3.0 首页卡片：300×268，固定三槽（5h / W / M）、右上角最大区间环、
+ * 折叠态各区间小环、footer（状态灯 + 该 Key 采集时间）、折叠状态本地持久化。
+ * 配色规则与进度条同源：slotSeverity(用量%, 时间进度%) → 绿/黄/红；
+ * 余额卡另有一套：余额% = min(余额 ÷ 满额, 100%)，档位取 cfgView.balance（高=健康）。
+ * ============================================================ */
+
+const COLLAPSE_KEY = 'qc.collapsed';
+const SLOT_ORDER = ['5小时', '周', '月'];
+const SLOT_CODE = { '5小时': '5h', '周': 'W', '月': 'M' };
+const SLOT_LABEL = { '5小时': '每 5 小时额度', '周': '每周使用额度', '月': '每月使用额度' };
+
+// 折叠状态：本地持久化（刷新页面/重开浏览器保持），键为 provider id（= 平台.凭据）
+function collapsedSet() {
+  try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]')); } catch (e) { return new Set(); }
+}
+function isCollapsed(id) { return collapsedSet().has(id); }
+function toggleCollapsed(id) {
+  const set = collapsedSet();
+  set.has(id) ? set.delete(id) : set.add(id);
+  try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set])); } catch (e) { /* 隐私模式等：忽略 */ }
+}
+
+// 余额设置（来自 GET /api/config；缺失时用与后端一致的默认值）
+function balanceCfg() {
+  const b = (cfgView && cfgView.balance) || {};
+  const full = Number(b.full) > 0 ? Number(b.full) : 100;
+  const green = Number.isFinite(Number(b.green_pct)) ? Number(b.green_pct) : 50;
+  const warn = Number.isFinite(Number(b.warn_pct)) ? Number(b.warn_pct) : 20;
+  return { full, green, warn };
+}
+function balancePct(v) { return Math.max(0, Math.min(100, (Number(v) || 0) / balanceCfg().full * 100)); }
+function balanceSev(v) {
+  const p = balancePct(v), c = balanceCfg();
+  return p >= c.green ? 0 : p >= c.warn ? 1 : 2;
+}
+function sevColor(sev) { return sev === 1 ? 'var(--warn)' : sev === 2 ? 'var(--err)' : 'var(--ok)'; }
+function sevCls(sev) { return sev === 1 ? 'warn' : sev === 2 ? 'danger' : ''; }
+
+// 环比：颜色按 slotSeverity(该槽用量%, 该槽时间进度%)，与进度条同源
+function ringSvg(pct, size, sw, color) {
+  const r = (size - sw) / 2, c = 2 * Math.PI * r;
+  const off = c * (1 - Math.max(0, Math.min(100, pct)) / 100);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" style="stroke:#232a34" stroke-width="${sw}"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" style="stroke:${color}" stroke-width="${sw}"
+      stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/>
+  </svg>`;
+}
+function slotPct(it) {
+  if (!it) return undefined;
+  if (it.label === '余额') return undefined;
+  if (it.percentage !== undefined) return it.percentage;
+  if (typeof it.current === 'number' && typeof it.total === 'number' && it.total > 0) {
+    return Math.round(it.current / it.total * 100);
+  }
+  return undefined;
+}
+function slotLine(it) {
+  return { it, pct: slotPct(it), t: it ? timeProgress(it.label, it.resetTime) : undefined, balance: !!(it && it.label === '余额') };
+}
+// balanceOf 余额卡取「总余额」：接口会给 total / granted / topped 三笔，
+// 取数值最大的一笔（total = granted + topped_up）即为总余额。
+function balanceOf(lines) {
+  const bs = lines.filter(l => l.balance && l.it);
+  if (!bs.length) return null;
+  return bs.reduce((a, b) => (Number(b.it.current) || 0) > (Number(a.it.current) || 0) ? b : a);
+}
+function maxLine(lines) {  // 最大区间：有月用月、否则周、再否则 5h；余额卡用余额
+  const bal = balanceOf(lines);
+  if (bal) return bal;
+  for (const k of ['月', '周', '5小时']) {
+    const hit = lines.find(l => l.it && l.it.label === k);
+    if (hit) return hit;
+  }
+  return lines.find(l => l.it) || null;
+}
+function lineColor(l) {
+  if (l.balance) return sevColor(balanceSev(l.it.current));
+  if (l.pct === undefined) return 'var(--muted)';
+  return sevColor(slotSeverity(l.pct, l.t));
+}
+function linePct(l) {
+  if (l.balance) return balancePct(l.it.current);
+  return l.pct === undefined ? 0 : l.pct;
+}
+
+// 展开态槽位：固定 4 层（标题行 / 用量条 / 时间条 / 时间百分比），空槽也占同样的位
+function slotShell(head, bar, tbar, tp, extra) {
+  return `<div class="pc-slot${extra ? ' ' + extra : ''}">${head}${bar}${tbar}${tp}</div>`;
+}
+function emptySlot(key) {
+  return slotShell(
+    `<div class="pc-sh"><span class="pc-sl">${SLOT_LABEL[key]}</span><span class="pc-grow"></span><span class="pc-sp">—</span></div>`,
+    `<div class="pc-bar"><i style="width:0"></i></div>`,
+    `<div class="pc-tbar"><i style="width:0"></i></div>`,
+    `<span class="pc-tp">&nbsp;</span>`, 'pc-empty');
+}
+function balanceSlot(it) {
+  const pct = balancePct(it.current), sev = balanceSev(it.current);
+  const unit = it.unit ? ' ' + esc(it.unit) : '';
+  const pctText = (Math.round(pct * 10) / 10) + '%';
+  return slotShell(
+    `<div class="pc-sh"><span class="pc-sl">账户余额 ${esc(fmtNum(it.current))}${unit}</span><span class="pc-grow"></span>
+      <span class="pc-sp">${pctText}</span></div>`,
+    `<div class="pc-bar" title="余额 ${esc(fmtNum(it.current))}${unit}｜满额 ${balanceCfg().full} 计 ${pctText}（绿 ≥${balanceCfg().green}% / 黄 ≥${balanceCfg().warn}%）">
+      <i class="${sevCls(sev)}" style="width:${pct}%"></i></div>`,
+    `<div class="pc-tbar"><i style="width:0"></i></div>`,
+    `<span class="pc-tp">&nbsp;</span>`);
+}
+function quotaSlot(it) {
+  const pct = it.percentage !== undefined ? it.percentage
+    : (typeof it.current === 'number' && typeof it.total === 'number' && it.total > 0
+        ? Math.round(it.current / it.total * 100) : undefined);
+  const tPct = timeProgress(it.label, it.resetTime);
+  const sev = slotSeverity(pct, tPct);
+  const reset = (it.resetTime !== undefined && it.resetTime !== null && it.resetTime !== '')
+    ? `<span class="pc-sr">重置 ${esc(fmtReset(it.label, it.resetTime))}</span>` : '';
+  return slotShell(
+    `<div class="pc-sh"><span class="pc-sl">${SLOT_LABEL[it.label] || esc(it.label + '额度')}</span><span class="pc-grow"></span>
+      ${reset}<span class="pc-sp">${pct !== undefined ? pct + '%' : '—'}</span></div>`,
+    `<div class="pc-bar" title="用量 ${pct !== undefined ? pct + '%' : '--'}"><i class="${sevCls(sev)}" style="width:${Math.max(0, Math.min(100, pct || 0))}%"></i></div>`,
+    `<div class="pc-tbar" title="时间进度 ${tPct !== undefined ? tPct + '%' : '--'}"><i style="width:${tPct || 0}%"></i></div>`,
+    `<span class="pc-tp">时间进度 <b>${tPct !== undefined ? tPct + '%' : '--'}</b></span>`);
+}
+function slotsHtml(lines) {
+  return `<div class="pc-slots">` + SLOT_ORDER.map(key => {
+    const line = lines.find(l => l.it && (l.it.label === key || (key === '5小时' && l.balance)));
+    if (!line || !line.it) return emptySlot(key);
+    if (line.balance) return balanceSlot(line.it);
+    return quotaSlot(line.it);
+  }).join('') + `</div>`;
+}
+
+// 折叠态各区间小环（每槽一个；余额 = 一个环，环内显示金额）
+function miniRingsHtml(lines) {
+  const bal = balanceOf(lines);
+  if (bal) {
+    const v = fmtNum(bal.it.current);
+    return `<div class="pc-rmini" title="账户余额 ${esc(v)}${bal.it.unit ? ' ' + esc(bal.it.unit) : ''}（满额 ${balanceCfg().full} → ${(Math.round(balancePct(bal.it.current) * 10) / 10)}%）">
+      ${ringSvg(balancePct(bal.it.current), 30, 3.5, sevColor(balanceSev(bal.it.current)))}
+      <span class="v">${esc(v)}</span><span class="l">余额</span></div>`;
+  }
+  return lines.filter(l => l.it && l.pct !== undefined).map(l =>
+    `<div class="pc-rmini" title="${SLOT_LABEL[l.it.label] || ''} ${l.pct}%（时间进度 ${l.t !== undefined ? l.t + '%' : '--'}）">
+      ${ringSvg(l.pct, 30, 3.5, lineColor(l))}<span class="v">${l.pct}</span><span class="l">${SLOT_CODE[l.it.label] || esc(l.it.label)}</span></div>`
+  ).join('');
+}
+
+// footer：状态灯（红=采集失败/异常/Key 失效，灰=等待采集，绿=正常）+ 该 Key 的采集时间
+function footHtml(prov) {
+  const meta = statusMeta(prov);
+  const dotCls = prov.status === 'ok' || prov.status === 'cached' ? ''
+    : (prov.status === 'failed' && (prov.error || {}).code === 'NOT_COLLECTED_YET') ? 'wait'
+    : (prov.status === 'disabled' ? 'wait' : 'err');
+  const reason = prov.error ? ((prov.error.message || prov.error.code || '') + (prov.error.retry_after_s ? `，${prov.error.retry_after_s}s 后重试` : '')) : (meta.text);
+  const when = prov.last_success_at ? fmtTime(prov.last_success_at) : '尚未采集';
+  return `<div class="pc-foot">
+      <span class="pc-dot ${dotCls}" title="${esc(meta.text + '：' + (reason || '采集正常'))}"></span>
+      <span class="pc-st ${dotCls}">${esc(meta.text)}</span>
+      <span class="pc-time" title="该 API Key 最近一次成功采集的时间（本地时间）">采集 ${esc(when)}</span>
+    </div>`;
+}
+
+function ringMainHtml(lines) {
+  const max = maxLine(lines);
+  // 无数据也占住环的位置：头部高度与其他卡一致，槽位纵向位置才能跨卡对齐
+  if (!max || !max.it) {
+    return `<div class="pc-ring-main" title="尚未采集到数据">${ringSvg(0, 46, 4, '#39414f')}
+      <span class="val sm" style="color:#5b6472">—</span></div>`;
+  }
+  if (max.balance) {
+    const v = fmtNum(max.it.current);
+    return `<div class="pc-ring-main" title="账户余额 ${esc(v)}${max.it.unit ? ' ' + esc(max.it.unit) : ''}（满额 ${balanceCfg().full} → ${(Math.round(balancePct(max.it.current) * 10) / 10)}%）">
+      ${ringSvg(balancePct(max.it.current), 46, 4, sevColor(balanceSev(max.it.current)))}
+      <span class="val sm">${esc(v)}</span><span class="cap">余额</span></div>`;
+  }
+  const pct = max.pct;
+  return `<div class="pc-ring-main" title="${SLOT_LABEL[max.it.label] || ''} 用量 ${pct !== undefined ? pct + '%' : '--'}（时间进度 ${max.t !== undefined ? max.t + '%' : '--'}）">
+      ${ringSvg(pct || 0, 46, 4, lineColor(max))}
+      <span class="val">${pct !== undefined ? pct : '--'}<i>%</i></span>
+      <span class="cap">${SLOT_CODE[max.it.label] || esc(max.it.label)}</span></div>`;
+}
+
 function renderHomeGrid() {
   const grid = $('#homeGrid');
+  // 折叠状态与展开/收起是纯本地状态：重绘前记住哪些是收起的（不依赖服务端）
   grid.innerHTML = '';
   retryAt = {};
   const all = (snap && snap.providers) || [];
-  // 停用平台不上首页（v0.2.4）：首页只展示在采平台；停用项在「设置 → 平台管理」与「详情」下拉里可见
   const provs = all.filter(p => p.status !== 'disabled');
   const empty = $('#emptyHome');
   empty.style.display = provs.length ? 'none' : 'block';
   empty.textContent = all.length
-    ? `所有平台都已停用（共 ${all.length} 个）。到「设置 → 平台管理」勾选「启用该平台」即可恢复采集~`
-    : '还没有配置任何平台。到「设置」里添加一个平台的 token，保存后采集器会自动拉取数据~';
+    ? `所有平台都已停用（共 ${all.length} 个）。到「设置 → 平台管理」勾选「启用该凭据」即可恢复采集~`
+    : '还没有配置任何平台。到「设置」里添加一个平台的 API Key，保存后采集器会自动拉取数据~';
   for (const prov of provs) {
     const card = document.createElement('div');
-    card.className = 'prov-card';
     const meta = statusMeta(prov);
-    const badge = `<span class="badge ${meta.cls}">${esc(meta.text)}</span>`;
+    const collapsed = isCollapsed(prov.id);
+    card.className = 'prov-card' + (collapsed ? ' collapsed' : '')
+      + (meta.cls === 'err' ? ' state-err' : '');
+    card.dataset.pid = prov.id;
+    const hasData = (prov.status === 'ok' || prov.status === 'cached') && prov.data !== null && prov.data !== undefined;
+    const items = hasData ? extractQuotaItems(prov) : [];
+    const lines = SLOT_ORDER.map(k => slotLine(items.find(it => it.label === k)))
+      .concat([slotLine(items.find(it => it.label === '余额'))]);
+    const anyData = lines.some(l => l.it);
 
-    // 错误分类文案（v0.2.5 三态语义见 statusMeta：等待采集 / 采集异常 / 采集失败）
-    let errNote = '';
-    if (prov.status === 'cached') {
-      errNote = `<div class="pending-note">显示上次成功采集的数据${prov.last_success_at ? '（' + esc(fmtTime(prov.last_success_at)) + '）' : ''}，等待本轮采集刷新...</div>`;
-    } else if (prov.status === 'token_invalid') {
-      errNote = `<div class="err-note">${esc((prov.error && prov.error.message) || 'API Key 失效，请在设置中更新')}</div>`;
-    } else if (prov.status === 'failed') {
+    // 未采集/异常的说明：正文不写长句（固定三槽 + footer 已经够读），长句进 title
+    let note = '';
+    if (!hasData) {
       const code = prov.error && prov.error.code;
-      if (code === 'NOT_COLLECTED_YET') {
-        errNote = `<div class="pending-note">等待采集（下一轮自动开始）...</div>`;
-      } else {
-        const ra = (prov.error && prov.error.retry_after_s) || 0;
-        const label = meta.text; // 「采集异常」/「采集失败」
-        if (ra > 0) {
-          retryAt[prov.id] = Date.now() + ra * 1000;
-          errNote = `<div class="err-note">${esc(label)}，<span class="retry-in" data-pid="${esc(prov.id)}">${esc(fmtRetryIn(ra))}</span>后重试 · ${esc((prov.error && prov.error.message) || '')}</div>`;
-        } else {
-          errNote = `<div class="err-note">${esc(label)} · ${esc((prov.error && prov.error.message) || '')}</div>`;
-        }
-      }
+      note = code === 'NOT_COLLECTED_YET' ? '等待采集（下一轮自动开始）'
+        : (prov.error ? (prov.error.message || '采集失败') : '加载中...');
+    } else if (!anyData) {
+      note = '接口通了，但没识别到周期额度字段（见详情页 JSON）';
     }
 
-    let inner;
-    if ((prov.status === 'ok' || prov.status === 'cached') && prov.data !== null && prov.data !== undefined) {
-      const items = extractQuotaItems(prov);
-      const byLabel = {};
-      for (const it of items) { if (!byLabel[it.label]) byLabel[it.label] = it; }
-      const balance = byLabel['余额'];
-      const slots = ['5小时', '周', '月'].map(p => byLabel[p]);
-      if (balance) {
-        for (let i = 0; i < slots.length; i++) {
-          if (!slots[i]) { slots[i] = balance; break; }
-        }
-      }
-      // 平台级标语：取三槽位最高级别
-      let banner = '';
-      const sevs = slots.map(it => it ? slotSeverity(
-        it.label === '余额' ? undefined : (it.percentage !== undefined ? it.percentage
-          : (typeof it.current === 'number' && typeof it.total === 'number' && it.total > 0 ? Math.round(it.current / it.total * 100) : undefined)),
-        timeProgress(it.label, it.resetTime)
-      ) : undefined).filter(s => s !== undefined);
-      const balanceItem = slots.find(it => it && it.label === '余额');
-      if (balanceItem && typeof balanceItem.current === 'number' && balanceItem.current <= 0 && sevs.length === 0) {
-        sevs.push(3);
-      }
-      if (sevs.length) {
-        const top = Math.max(...sevs);
-        const hasBalanceOnly = sevs.length === 1 && balanceItem && typeof balanceItem.current === 'number' && balanceItem.current <= 0;
-        const noun = hasBalanceOnly ? '余额' : '本期额度';
-        banner = `<span class="quota-banner sev${top}">${SEV[top].ico} ${esc(sevText(top, noun))}</span>`;
-      }
-      const collapsed = sevs.length && Math.max(...sevs) >= 2;
-      let body = `<div class="quota-row">${slots.map(it => quotaCardHtml(it, prov.id)).join('')}</div>`;
-      if (!slots.some(Boolean) && !balance) {
-        body = `<div class="pending-note">接口通了，但没识别到周期额度字段（见详情页 JSON）</div>`;
-      }
-      inner = `
-        <div class="prov-card-head">
-          <span class="name" data-pid="${esc(prov.id)}">${esc(prov.name)}</span>
-          ${badge}
-          ${banner}
-          <span class="go-detail toggle-detail">${collapsed ? '▾' : '▴'}</span>
-        </div>
-        <div class="prov-detail-wrap" style="${collapsed ? 'display:none' : ''}">
-          ${body}
-          ${errNote}
-        </div>`;
-    } else {
-      inner = `
-        <div class="prov-card-head">
-          <span class="name" data-pid="${esc(prov.id)}">${esc(prov.name)}</span>
-          ${badge}
-          <span class="go-detail toggle-detail">▴</span>
-        </div>
-        <div class="prov-detail-wrap">${errNote || '<div class="pending-note">加载中...</div>'}</div>`;
-    }
-    card.innerHTML = inner;
-    const wrap = card.querySelector('.prov-detail-wrap');
-    const tg = card.querySelector('.toggle-detail');
-    tg.onclick = () => {
-      const hidden = wrap.style.display === 'none';
-      wrap.style.display = hidden ? '' : 'none';
-      tg.textContent = hidden ? '▾' : '▴';
+    const head = `
+      <div class="pc-head" data-toggle>
+        <span class="pc-caret">${collapsed ? '▸' : '▾'}</span>
+        <span class="pc-name" data-detail>${esc(prov.name)}</span>
+        <span class="pc-grow"></span>
+        ${collapsed ? `<span class="pc-rings-mini">${miniRingsHtml(lines)}</span>` : ''}
+        ${collapsed ? '' : ringMainHtml(lines)}
+        <button class="pc-refresh" title="只刷新这张卡的数据（重读后端快照，不重载页面）" data-refresh>↻</button>
+      </div>`;
+    // 固定三槽：无论有没有数据都渲染同样三层（无数据用「—」），这样 1/2/3 条数据与等待中的卡
+    // 几何完全一致、跨卡像素级对齐（v0.3.0 定稿）。状态与原因走 footer + title。
+    const body = collapsed ? '' : slotsHtml(lines);
+
+    // 整卡的 title：把长句（含状态、错误原因、重试倒计时）放这里，正文只留一行
+    const ra = (prov.error && prov.error.retry_after_s) || 0;
+    if (ra > 0) retryAt[prov.id] = Date.now() + ra * 1000;
+    const longTip = [prov.name, meta.text, note, prov.error ? (prov.error.message || prov.error.code) : '',
+      prov.last_success_at ? ('上次成功 ' + fmtTime(prov.last_success_at)) : ''].filter(Boolean).join(' · ');
+    card.title = longTip;
+    card.innerHTML = head + body + footHtml(prov);
+
+    const tg = card.querySelector('[data-toggle]');
+    tg.onclick = (e) => {
+      if (e.target.closest('[data-refresh]')) return;
+      if (e.target.closest('[data-detail]')) { enterDetail(prov.id); return; }
+      toggleCollapsed(prov.id);
+      renderHomeGrid();
     };
-    const nameEl = card.querySelector('.name');
-    nameEl.onclick = () => enterDetail(prov.id);
+    card.querySelector('[data-refresh]').onclick = async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      btn.classList.add('spin');
+      await refreshData();          // 只重读后端快照，不触发采集、不重载页面
+      btn.classList.remove('spin');
+    };
+    card.querySelector('[data-detail]').onclick = (e) => { e.stopPropagation(); enterDetail(prov.id); };
     grid.appendChild(card);
   }
+  updateRetryTexts();
+}
+
+// 失败卡 footer 的倒计时（v0.3.0：状态文案里带「N 秒后重试」，每秒刷一次，不重绘整卡）
+function updateRetryTexts() {
+  document.querySelectorAll('.prov-card').forEach(card => {
+    const at = retryAt[card.dataset.pid];
+    const el = card.querySelector('.pc-st');
+    if (!at || !el) return;
+    if (!el.dataset.base) el.dataset.base = el.textContent;
+    const left = Math.round((at - Date.now()) / 1000);
+    el.textContent = left > 0 ? `${el.dataset.base} · ${fmtRetryIn(left)}后重试` : `${el.dataset.base} · 即将重试`;
+  });
 }
 
 // 失败倒计时 + 冷启动剩余秒数（1s 粒度）
 setInterval(() => {
-  document.querySelectorAll('.retry-in').forEach(el => {
-    const pid = el.getAttribute('data-pid');
-    const t = retryAt[pid];
-    if (!t) return;
-    const left = Math.round((t - Date.now()) / 1000);
-    el.textContent = left > 0 ? fmtRetryIn(left) : '即将重试';
-  });
+  updateRetryTexts();
   if (Date.now() < fastDeadline) renderPollInfo();
 }, 1000);
 
-const QUOTA_SLOT_LABEL = { '5小时': '每5小时使用额度', '周': '每周使用额度', '月': '每月使用额度', '余额': '账户余额' };
 const MODEL_CODE_NAMES = { 'search-prime': '网络搜索', 'web-reader': '网页读取', 'zread': '开源仓库' };
 
 function slotSeverity(percent, tPct) {
@@ -862,81 +1112,8 @@ function slotSeverity(percent, tPct) {
   if (rem <= 0) return 2;
   return (lead / rem) < 0.3 ? 1 : 2;
 }
-const SEV = { 0: { ico: '💪' }, 1: { ico: '🚀' }, 2: { ico: '⚠️' }, 3: { ico: '🛌' } };
-const SEV_TMPL = {
-  0: [(n) => `${n}充足，加把劲干`],
-  1: [() => `节奏略快，悠着点`],
-  2: [(n) => `按这节奏，${n}在重置前就见底，歇歇再战`],
-  3: [
-    (n) => `${n}已耗尽，多休息休息`,
-    (n) => `${n}已经耗尽，喝杯茶休息下吧`,
-    (n) => `${n}用完了，先歇口气`,
-    (n) => `${n}见底了，起来走动走动`,
-    (n) => `${n}清零，趁重置前摸会儿鱼`,
-  ],
-};
-function sevText(sev, noun) {
-  const arr = SEV_TMPL[sev];
-  const t = arr[Math.floor(Math.random() * arr.length)];
-  return t(noun || '本期额度');
-}
 const SEV_BAR = { 0: '', 1: 'warn', 2: 'danger', 3: 'danger' };
 
-function quotaCardHtml(it, provId) {
-  if (!it) {
-    return `<div class="qcard empty"><div class="q-percent">--</div></div>`;
-  }
-  if (it.label === '余额') {
-    const val = fmtNum(it.current);
-    const unit = it.unit ? ' ' + esc(it.unit) : '';
-    return `
-    <div class="qcard">
-      <div class="q-label">账户余额</div>
-      <div class="q-percent">${esc(val)}<span class="pct">${unit}</span></div>
-    </div>`;
-  }
-  let label;
-  if (it && it.label === '月' && provId === 'zhipu') label = 'MCP 每月额度';
-  else label = QUOTA_SLOT_LABEL[it && it.label] || ((it && it.label) ? it.label + '额度' : '');
-  let percent = it.percentage;
-  if (percent === undefined && typeof it.current === 'number' && typeof it.total === 'number' && it.total > 0) {
-    percent = Math.round(it.current / it.total * 100);
-  }
-  const hasNum = !!(it.details && it.details.length);
-  let valText = '';
-  if (it.details && it.details.length) {
-    const parts = [];
-    if (it.total !== undefined) parts.push('额度：' + fmtNum(it.total));
-    for (const d of it.details) parts.push((MODEL_CODE_NAMES[d.code] || d.code) + ' ' + fmtNum(d.usage));
-    valText = parts.join('，');
-  }
-  const tPct = timeProgress(it.label, it.resetTime);
-  const sev = slotSeverity(percent, tPct);
-  const barColor = sev === undefined ? '' : SEV_BAR[sev];
-  let barArea = '';
-  if (percent !== undefined) {
-    const fill = `<div class="q-bar-fill ${barColor}" style="width:${Math.min(100, Math.max(0, percent))}%"></div>`;
-    const tw = tPct !== undefined ? tPct : 0;
-    const tText = tPct !== undefined ? `时间 ${tPct}%` : '时间 --';
-    barArea = `
-    <div class="q-bars">
-      <div class="q-bar-row"><span class="q-ico">💲</span><div class="q-bar">${fill}</div></div>
-      <div class="q-bar-row"><span class="q-ico">🕐</span><div class="q-bar"><div class="q-bar-fill time" style="width:${tw}%"></div></div></div>
-      <span class="q-tpct">${tText}</span>
-    </div>`;
-  }
-  const reset = (it.resetTime !== undefined && it.resetTime !== null && it.resetTime !== '')
-    ? `<div class="q-reset">重置时间 ${esc(fmtReset(it.label, it.resetTime))}</div>` : '';
-  const stIco = (sev !== undefined && SEV[sev]) ? `<span class="q-status" title="${esc(sevText(sev))}">${SEV[sev].ico}</span>` : '';
-  return `
-    <div class="qcard">
-      <div class="q-label">${label}${stIco}</div>
-      <div class="q-percent">${percent !== undefined ? percent + '<span class="pct">%</span>' : '--'}</div>
-      ${barArea}
-      ${hasNum ? `<div class="q-val">${esc(valText)}</div>` : ''}
-      ${reset}
-    </div>`;
-}
 
 /* ---------- 详情页（原始数据视图） ---------- */
 // 详情同样只展示在采平台（v0.2.4）：停用平台在「设置 → 平台管理」里管理
@@ -1048,11 +1225,13 @@ async function refreshCfgView() {
   renderHeaderAuth();
 }
 
-/* ---------- 轮询（常规 60s；页面启动/有平台未就绪时 1s 快速轮询） ----------
+/* ---------- 轮询（常规 30s；页面启动/有平台未就绪时 1s 快速轮询） ----------
  * 页面首要任务：尽快显示服务端已有的最新结果。故启动后以 1s 间隔轮询，
- * 直到所有平台离开「尚未完成首次采集」（再保持 5s 余量）后回落到 60s 常规节奏。
- * 后端采集节奏独立于此（tick 循环自驱），轮询只是读内存快照。 */
-const POLL_INTERVAL_MS = 60000;
+ * 直到所有平台离开「尚未完成首次采集」（再保持 5s 余量）后回落到 30s 常规节奏。
+ * v0.3.0：常规轮询 60s → 30s（读的是后端内存快照，成本很低），
+ * 各卡 footer 的「采集时间」随快照更新，取自该 Key 自己的 last_success_at。
+ * 后端采集节奏独立于此（tick 循环自驱），轮询/刷新都不触发采集。 */
+const POLL_INTERVAL_MS = 30000;
 const FAST_POLL_MS = 1000;
 const COLD_START_GRACE_MS = 5000; // 全部就绪后再保持 5s 快速轮询余量
 const FAST_POLL_CAP_MS = 90000;   // 一轮快速期硬上限（多平台错峰 + 25s 出站超时的最坏冷启动）
@@ -1099,6 +1278,13 @@ async function pollTick() {
   schedulePoll();
 }
 
+// refreshData 顶部「刷新」与单卡 ↻ 共用：重读后端快照并立即重绘，不触发采集、不重载页面。
+// force=true 让 pollNow 无条件重绘（快照没变也刷一遍界面，保证「点了有反馈」）。
+async function refreshData() {
+  await pollNow(true);
+  schedulePoll();
+}
+
 async function pollNow(force) {
   try {
     const j = await api('/api/quotas');
@@ -1116,22 +1302,46 @@ async function pollNow(force) {
       renderFooter();
       if (view === 'detail') renderDetail();
     }
-    let summary = '尚无平台';
-    if (provs.length) {
-      summary = visible.length
-        ? `${okCount}/${visible.length} 个平台有数据` + (disabledCount ? `（${disabledCount} 个已停用，未显示）` : '')
-        : `${disabledCount} 个平台全部已停用`;
-    }
-    // 平台全部停用属用户主动状态，不该亮红点
-    setConn('home', (provs.length === 0 || visible.length === 0) ? '' : (okCount ? 'ok' : 'err'), summary);
+    renderHomeStatus(j);
     renderPollInfo();
   } catch (e) {
-    setConn('home', 'err', '连接服务端失败');
+    $('#connHome').innerHTML = `<span class="chip err">连接服务端失败</span>`;
   }
+}
+
+// renderHomeStatus 首页状态条（v0.3.0）：chip 形式、随窗口宽度自动换行。
+// 长句一律撤掉，只留计数与分类；「上次成功」取各卡 last_success_at 的最大值。
+function renderHomeStatus(j) {
+  const provs = (j && j.providers) || [];
+  const visible = provs.filter(p => p.status !== 'disabled');
+  const disabled = provs.length - visible.length;
+  const counts = { ok: 0, cached: 0, 异常: 0, failed: 0, token_invalid: 0, waiting: 0 };
+  let lastOK = null;
+  for (const p of visible) {
+    const code = (p.error && p.error.code) || '';
+    if (p.status === 'ok') counts.ok++;
+    else if (p.status === 'cached') counts.cached++;
+    else if (code === 'NOT_COLLECTED_YET') counts.waiting++;
+    else if (code === 'RATE_LIMITED') counts.异常++;
+    else if (p.status === 'token_invalid') counts.token_invalid++;
+    else if (p.status === 'failed') counts.failed++;
+    if (p.last_success_at && (!lastOK || p.last_success_at > lastOK)) lastOK = p.last_success_at;
+  }
+  const chips = [];
+  chips.push(`<span class="chip">${visible.length} 个 API Key 在采${disabled ? ` · ${disabled} 已停用` : ''}</span>`);
+  if (counts.ok + counts.cached) chips.push(`<span class="chip ok">${counts.ok + counts.cached} 正常</span>`);
+  if (counts.异常) chips.push(`<span class="chip warn">${counts.异常} 采集异常 429</span>`);
+  if (counts.failed) chips.push(`<span class="chip err">${counts.failed} 采集失败</span>`);
+  if (counts.token_invalid) chips.push(`<span class="chip err">${counts.token_invalid} Key 失效</span>`);
+  if (counts.waiting) chips.push(`<span class="chip wait">${counts.waiting} 等待采集</span>`);
+  if (!visible.length) chips.push(`<span class="chip wait">全部已停用</span>`);
+  chips.push(`<span class="chip dim">${lastOK ? '上次成功 ' + esc(fmtTime(lastOK)) : '尚无成功采集'}</span>`);
+  $('#connHome').innerHTML = chips.join('');
 }
 
 /* ---------- 设置面板（v0.2.4 双标签：平台管理 / 账户安全） ---------- */
 let settingsTab = 'platform';
+let pendingImport = null;   // 待确认的导入内容（预览→确认两步）
 
 // switchSettingsTab 切换设置面板标签（v0.2.5：平台管理 / 采集与服务 / 账户安全）。
 function switchSettingsTab(t) {
@@ -1177,6 +1387,10 @@ async function openSettings() {
   $('#sAuthMode').value = cfgView.auth.mode;
   $('#sPassword').value = '';
   $('#sInterval').value = cfgView.collector.interval_base_s;
+  const bal = balanceCfg();
+  $('#sBalFull').value = bal.full;
+  $('#sBalGreen').value = bal.green;
+  $('#sBalWarn').value = bal.warn;
   $('#sHost').value = cfgView.listen.host;
   $('#sPort').value = cfgView.listen.port;
   $('#settingsError').classList.remove('open');
@@ -1360,6 +1574,137 @@ function flushKeys() {
   if (next.length) p.access_keys = next;
 }
 
+/* ============================================================
+ * v0.3.0 配置导入 / 导出
+ * 导出：GET /api/config/export（admin 需登录）直接给文件下载，默认含明文 Key。
+ * 导入：解析文件 → 与本地对比出差异给你看 → 确认后灌进设置面板并复用既有保存流程
+ *（校验 / 新增 Key 必填 / token 重新加密 / 原子写 / 迁移备份 / 热生效 全都复用）。
+ * ============================================================ */
+
+// exportConfig 触发下载，并提示导出文件含明文 Key（用户要求：导出后尽快导入并删除本文件）。
+function exportConfig() {
+  const a = document.createElement('a');
+  a.href = '/api/config/export';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  const tip = '已导出配置（含明文 API Key）：请尽快在目标机器导入，导入完成后删除该文件，勿外传、勿提交到仓库';
+  toast(tip);
+  const box = $('#settingsError');
+  if (box) { box.textContent = tip; box.style.color = 'var(--warn)'; }
+}
+
+// parseImportText 解析导入内容：既接受「导出的文件」，也接受设置页回传的窄形态。
+function parseImportText(text) {
+  let obj;
+  try { obj = JSON.parse(text); } catch (e) { throw new Error('JSON 解析失败：' + e.message); }
+  if (!obj || typeof obj !== 'object' || !obj.providers) throw new Error('缺少 providers 字段，这不像一份 QuotaClock 配置');
+  return obj;
+}
+
+// diffImport 比较导入内容与当前配置，产出「新增 / Key 将更新 / 将删除 / 不变」清单。
+function diffImport(imp) {
+  const localByPlat = {};
+  for (const p of (cfgView.providers || [])) localByPlat[p.platform] = p;
+  const rows = [];
+  const seen = new Set();
+  for (const p of (imp.providers || [])) {
+    seen.add(p.platform);
+    const local = localByPlat[p.platform];
+    if (!local) { rows.push({ what: p.platform, change: '新增', detail: `${(p.access_keys || []).length} 个 Key` }); continue; }
+    rows.push({ what: p.platform, change: '不变', detail: `${(local.access_keys || []).length} 个 Key` });
+    const localKeys = {};
+    for (const k of (local.access_keys || [])) localKeys[k.id] = k;
+    for (const k of (p.access_keys || [])) {
+      const name = `${p.platform} / ${k.name || k.id}`;
+      const lk = localKeys[k.id];
+      if (!lk) { rows.push({ what: name, change: '新增', detail: k.token ? '带 Key' : '无 Key（导入后需补）' }); continue; }
+      if (k.token) rows.push({ what: name, change: 'Key 将重新写入', detail: '本机只存密文、无法与导入的明文比对；值相同则无实际变化' });
+      else rows.push({ what: name, change: 'Key 不变', detail: '导入文件未带 Key（保留本机原有）' });
+      const en = k.enabled !== false;
+      if (en !== (lk.enabled !== false)) rows.push({ what: name, change: '启用状态', detail: `${lk.enabled !== false ? '启用' : '停用'} → ${en ? '启用' : '停用'}` });
+    }
+    for (const k of (local.access_keys || [])) {
+      if (!(p.access_keys || []).some(x => x.id === k.id)) {
+        rows.push({ what: `${p.platform} / ${k.name || k.id}`, change: '将被删除', detail: '导入文件中没有这个 Key' });
+      }
+    }
+  }
+  for (const p of (cfgView.providers || [])) {
+    if (!seen.has(p.platform)) rows.push({ what: p.platform, change: '将被删除', detail: '整个平台' });
+  }
+  return rows;
+}
+
+function renderImportDiff(rows) {
+  const color = { '新增': 'var(--accent)', 'Key 将重新写入': 'var(--muted)', 'Key 不变': 'var(--muted)',
+                  '启用状态': 'var(--warn)', '将被删除': 'var(--err)', '不变': 'var(--muted)' };
+  const soft = { '不变': 1, 'Key 不变': 1, 'Key 将重新写入': 1 };   // 不算差异：整行淡化
+  const hard = rows.filter(r => !soft[r.change]);
+  const body = rows.map(r => `<tr style="${soft[r.change] ? 'opacity:.55' : ''}"><td>${esc(r.what)}</td>
+      <td style="color:${color[r.change] || 'var(--text)'}">${esc(r.change)}</td><td>${esc(r.detail || '')}</td></tr>`).join('');
+  const head = hard.length
+    ? `<div class="tip" style="margin-bottom:6px">差异 <b>${hard.length}</b> 处（淡色行 = 无变化）</div>`
+    : `<div class="tip" style="margin-bottom:6px;color:var(--ok)">导入内容与当前配置<b>完全一致</b>（Key 会按导入的明文重新加密，值相同则无副作用）</div>`;
+  $('#importDiff').innerHTML = head + `
+    <div class="tip" style="margin-bottom:6px">导入是<b>全量替换</b>（与保存配置一致）：确认后加密落盘并热生效；配置<b>版本升级（迁移）</b>时会在同目录留 ${esc('config.json.v' + (cfgView.version || 5) + '.bak')} 备份</div>
+    <table class="diff-table">
+      <tr><th>平台 / Key</th><th>变化</th><th>说明</th></tr>${body}
+    </table>`;
+}
+
+// currentImportText 取导入内容（文件优先，其次粘贴框）
+async function currentImportText() {
+  const f = $('#importFile').files && $('#importFile').files[0];
+  if (f) return await f.text();
+  return ($('#importText').value || '').trim();
+}
+
+function previewImport() {
+  currentImportText().then(text => {
+    if (!text) { toast('请先选择文件或粘贴配置内容'); return; }
+    try {
+      pendingImport = parseImportText(text);
+      renderImportDiff(diffImport(pendingImport));
+    } catch (e) {
+      $('#importDiff').innerHTML = `<div style="color:var(--err)">${esc(e.message)}</div>`;
+      pendingImport = null;
+    }
+  }).catch(e => toast('读取文件失败：' + e.message));
+}
+
+// applyImportedConfig 把导入内容灌进设置面板（不直接写盘）：
+// token 走 _tokenInput（保存时加密落盘），本机已有同 id 的 Key 标记为已保存。
+function applyImportedConfig(imp) {
+  const localKeys = {};
+  for (const p of (cfgView.providers || [])) for (const k of (p.access_keys || [])) localKeys[p.platform + '.' + k.id] = k;
+  cfgView.providers = (imp.providers || []).map(p => ({
+    platform: p.platform,
+    access_keys: (p.access_keys || []).map(k => {
+      const cur = localKeys[p.platform + '.' + k.id];
+      const kk = { id: k.id, name: k.name || '', enabled: k.enabled !== false,
+                   has_token: !!(cur && cur.has_token), _saved: !!cur };
+      if (k.token) kk._tokenInput = k.token;
+      return kk;
+    }),
+  }));
+  if (imp.listen) { $('#sHost').value = imp.listen.host; $('#sPort').value = imp.listen.port; }
+  if (imp.collector) {
+    cfgView.collector = Object.assign({}, cfgView.collector, imp.collector);
+    if (imp.collector.interval_base_s) $('#sInterval').value = imp.collector.interval_base_s;
+  }
+  const bal = imp.balance || {};
+  if (bal.full) $('#sBalFull').value = bal.full;
+  if (Number.isFinite(Number(bal.green_pct))) $('#sBalGreen').value = bal.green_pct;
+  if (Number.isFinite(Number(bal.warn_pct))) $('#sBalWarn').value = bal.warn_pct;
+  if (imp.auth && imp.auth.mode) $('#sAuthMode').value = imp.auth.mode;
+  if (Number.isFinite(Number(imp.version))) cfgView.version = Number(imp.version);
+  renderPlatformPane();
+  renderProvList();
+  renderAddPlatformSelect();
+}
+
 function buildPutBody() {
   flushKeys();
   const providers = (cfgView.providers || []).map(p => ({
@@ -1371,9 +1716,14 @@ function buildPutBody() {
     }),
   }));
   const body = {
-    version: cfgView.version || 4,
+    version: cfgView.version || 5,
     listen: { host: $('#sHost').value.trim(), port: parseInt($('#sPort').value, 10) },
     collector: Object.assign({}, cfgView.collector, { interval_base_s: parseInt($('#sInterval').value, 10) }),
+    balance: {
+      full: parseFloat($('#sBalFull').value) || 100,
+      green_pct: parseInt($('#sBalGreen').value, 10) || 0,
+      warn_pct: parseInt($('#sBalWarn').value, 10) || 0,
+    },
     auth: { mode: $('#sAuthMode').value },
     providers,
   };
@@ -1531,11 +1881,19 @@ async function doLogout() {
 $('#tabHome').onclick = () => switchView('home');
 $('#tabDetail').onclick = () => switchView('detail');
 $('#refreshBtn').onclick = async () => {
-  // 手动刷新：立即拉取并重置轮询计时器；若仍有未就绪平台则重新进入快速轮询
-  clearTimeout(pollTimer);
-  await pollNow(true);
-  if (isUnsettled(snap)) enterFastPoll();
-  schedulePoll();
+  // 手动刷新（v0.3.0）：与单卡 ↻ 同一路径 —— 只重读后端快照并重绘，不重载页面、不触发采集；
+  // 若仍有未就绪平台则重新进入快速轮询。
+  const btn = $('#refreshBtn');
+  btn.disabled = true;
+  btn.textContent = '刷新中...';
+  try {
+    await refreshData();
+  } finally {
+    if (isUnsettled(snap)) enterFastPoll();
+    schedulePoll();
+    btn.disabled = false;
+    btn.textContent = '刷新';
+  }
 };
 // 切回前台立即刷新：浏览器会对后台标签页节流定时器，回前台应马上拿最新快照
 document.addEventListener('visibilitychange', () => {
@@ -1552,6 +1910,19 @@ $('#stabAccount').onclick = () => switchSettingsTab('account');
 $('#closeModalBtn').onclick = () => $('#settingsModal').classList.remove('open');
 $('#settingsModal').addEventListener('click', e => { if (e.target === e.currentTarget) e.target.classList.remove('open'); });
 $('#saveBtn').onclick = saveSettings;
+// 导出 / 导入（v0.3.0）
+$('#exportBtn').onclick = exportConfig;
+$('#importBtn').onclick = () => {
+  const box = $('#importBox');
+  box.style.display = box.style.display === 'none' ? '' : 'none';
+};
+$('#importPreviewBtn').onclick = previewImport;
+$('#importApplyBtn').onclick = async () => {
+  if (!pendingImport) { previewImport(); toast('请先点「预览差异」确认内容'); return; }
+  applyImportedConfig(pendingImport);
+  pendingImport = null;
+  await saveSettings();     // 复用既有保存流程：校验 / 加密 / 备份 / 热生效
+};
 $('#addProvBtn').onclick = () => {
   flushKeys();
   if (!cfgView.providers) cfgView.providers = []; // null 兜底（服务端已根治为 []，防旧会话视图）

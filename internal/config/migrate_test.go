@@ -375,3 +375,45 @@ func TestDeriveKeyName(t *testing.T) {
 		}
 	}
 }
+
+// TestMigrateV4AddsBalance（v0.3.0）：v4 → v5 只补 balance 段，其余字段一字不动。
+func TestMigrateV4AddsBalance(t *testing.T) {
+	raw := []byte(`{"version":4,"listen":{"host":"127.0.0.1","port":8899},` + defaultCollectorJSON + `,
+	  "auth":{"mode":"admin","password_hash":"$2a$10$keep"},"providers":[
+	    {"platform":"deepseek","access_keys":[{"id":"k1","name":"主","token_cipher":"CIPHER","enabled":false}]}]}`)
+	f, logs, err := MigrateV4(raw)
+	if err != nil {
+		t.Fatalf("迁移失败: %v", err)
+	}
+	if f.Version != CurrentVersion {
+		t.Fatalf("版本应升到 %d: %d", CurrentVersion, f.Version)
+	}
+	if f.Balance != DefaultBalance() {
+		t.Fatalf("应补默认余额设置: %+v", f.Balance)
+	}
+	if f.Listen.Port != 8899 || f.Auth.PasswordHash != "$2a$10$keep" {
+		t.Fatalf("其余字段被改动: %+v %+v", f.Listen, f.Auth)
+	}
+	if len(f.Providers) != 1 || f.Providers[0].AccessKeys[0].TokenCipher != "CIPHER" {
+		t.Fatalf("凭据被改动: %+v", f.Providers)
+	}
+	if f.Providers[0].AccessKeys[0].IsEnabled() {
+		t.Fatal("停用状态应原样保留")
+	}
+	if len(logs) != 1 || !strings.Contains(logs[0], "余额展示设置") {
+		t.Fatalf("应记一条余额迁移日志: %v", logs)
+	}
+	// 已带 balance 的 v4（理论上不该有，但手写文件可能）：不覆盖
+	raw2 := []byte(`{"version":4,"listen":{"host":"127.0.0.1","port":1},` + defaultCollectorJSON + `,
+	  "balance":{"full":80,"green_pct":40,"warn_pct":10},"auth":{"mode":"admin"},"providers":[]}`)
+	f2, logs2, err := MigrateV4(raw2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f2.Balance != (Balance{Full: 80, GreenPct: 40, WarnPct: 10}) {
+		t.Fatalf("不应覆盖已有 balance: %+v", f2.Balance)
+	}
+	if len(logs2) != 0 {
+		t.Fatalf("无需日志: %v", logs2)
+	}
+}

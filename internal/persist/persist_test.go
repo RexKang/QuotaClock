@@ -101,10 +101,10 @@ func writeConfig(t *testing.T, dir, content string) string {
 
 func TestLoadFileFutureVersionRejected(t *testing.T) { // C-per-05
 	dir := t.TempDir()
-	p := writeConfig(t, dir, `{"version":5,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[]}`)
+	p := writeConfig(t, dir, `{"version":6,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[]}`)
 	_, err := LoadFile(p)
 	if err == nil {
-		t.Fatal("version=5 应拒绝")
+		t.Fatal("version=6（高于当前）应拒绝")
 	}
 	if !strings.Contains(err.Error(), "更新版本程序") || !strings.Contains(err.Error(), p) {
 		t.Fatalf("错误应含指定文案与路径: %v", err)
@@ -118,14 +118,14 @@ func TestLoadFileBadConfigs(t *testing.T) { // C-per-06
 		content string
 		want    string
 	}{
-		{"JSON 断裂", `{"version":4,`, "JSON 解析失败"},
+		{"JSON 断裂", `{"version":5,`, "JSON 解析失败"},
 		{"缺 version", `{"listen":{"host":"127.0.0.1","port":1},"auth":{"mode":"admin"}}`, "缺少 version"},
 		{"version 1", `{"version":1}`, "不受支持"},
-		{"未知字段", `{"version":4,"foo":1}`, "未知字段"},
-		{"R4 违例", `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{"interval_base_s":10},"auth":{"mode":"admin"},"providers":[]}`, "interval_base_s"},
-		{"R9 违例", `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"su"},"providers":[]}`, "auth.mode"},
-		{"R11 平台白名单", `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"not-a-platform","access_keys":[{"id":"k1"}]}]}`, "platform"},
-		{"R12 空凭据列表", `{"version":4,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"deepseek","access_keys":[]}]}`, "access_keys"},
+		{"未知字段", `{"version":5,"foo":1}`, "未知字段"},
+		{"R4 违例", `{"version":5,"listen":{"host":"127.0.0.1","port":1},"collector":{"interval_base_s":10},"auth":{"mode":"admin"},"providers":[]}`, "interval_base_s"},
+		{"R9 违例", `{"version":5,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"su"},"providers":[]}`, "auth.mode"},
+		{"R11 平台白名单", `{"version":5,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"not-a-platform","access_keys":[{"id":"k1"}]}]}`, "platform"},
+		{"R12 空凭据列表", `{"version":5,"listen":{"host":"127.0.0.1","port":1},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"deepseek","access_keys":[]}]}`, "access_keys"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -255,7 +255,7 @@ func TestMigrationFullChain(t *testing.T) { // C-per-08：FX-2 → 迁移 → �
 	if strings.Contains(s, "sk-kimi-test") || strings.Contains(s, "sk-z") {
 		t.Fatal("config.json 含明文 token")
 	}
-	if !strings.Contains(s, `"version": 4`) || !strings.Contains(s, `"platform": "kimi-code"`) {
+	if !strings.Contains(s, `"version": 5`) || !strings.Contains(s, `"platform": "kimi-code"`) {
 		t.Fatalf("迁移结果不完整: %s", s)
 	}
 	// 兜底 provider（9000 端口）已跳过，启动可用
@@ -277,5 +277,32 @@ func TestLockNameOf(t *testing.T) { // C-lock-05 前置：锁名 = sha256(绝对
 	}
 	if !strings.HasPrefix(n1, "quotaclock-") || len(n1) != len("quotaclock-")+16+len(".lock") {
 		t.Fatalf("锁名格式错误: %s", n1)
+	}
+}
+
+// TestLoadFileV4NeedsMigration（v0.3.0）：v0.2.5 的 version 4 配置进入 V4 迁移态，
+// OldVersion 用于备份命名（config.json.v4.bak）。
+func TestLoadFileV4NeedsMigration(t *testing.T) {
+	dir := t.TempDir()
+	p := writeConfig(t, dir, `{"version":4,"listen":{"host":"127.0.0.1","port":8787},`+
+		`"collector":{"interval_base_s":300,"jitter_min_s":5,"jitter_max_s":25,"stagger_min_s":1,"stagger_max_s":5,"backoff_multiplier":2,"backoff_max_s":1800},`+
+		`"auth":{"mode":"admin"},"providers":[{"platform":"deepseek","access_keys":[{"id":"k1","token_cipher":"CIPHER"}]}]}`)
+	res, err := LoadFile(p)
+	if err != nil {
+		t.Fatalf("不该报错: %v", err)
+	}
+	if res.State != StateNeedsMigrationV4 || res.OldVersion != 4 {
+		t.Fatalf("应为 V4 迁移态且记住旧版本: %+v", res)
+	}
+	if res.File != nil {
+		t.Fatal("迁移态不应给 File")
+	}
+	// 迁移后能被当作当前版本正常加载
+	f, logs, err := config.MigrateV4(res.Raw)
+	if err != nil || len(logs) != 1 {
+		t.Fatalf("迁移失败: %v %v", err, logs)
+	}
+	if details := config.ValidateFile(f); len(details) > 0 {
+		t.Fatalf("迁移结果应通过文件校验: %+v", details)
 	}
 }

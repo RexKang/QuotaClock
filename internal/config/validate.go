@@ -24,9 +24,12 @@ func Validate(p *Put) []ValidationError {
 		errs = append(errs, ValidationError{Field: field, Message: fmt.Sprintf(format, args...)})
 	}
 
-	// R1 version
-	if p.Version != CurrentVersion {
-		add("version", "必须为 %d", CurrentVersion)
+	// R1 version（r5 放宽）：接受 1~CurrentVersion 的旧版本号 —— 跨机器搬运时，
+	// 源机器可能是旧版（导出文件里带的是那台机器的版本号），一律按「旧版配置导入」
+	// 处理：补默认值 + 迁移前备份，见 server.handlePutConfig。
+	// 高于本程序版本的配置依旧拒绝（旧程序读新配置必然误解析）。
+	if p.Version < 1 || p.Version > CurrentVersion {
+		add("version", "必须是 1~%d 之间的配置版本（本程序为 %d）", CurrentVersion, CurrentVersion)
 	}
 	// R2 port
 	if p.Listen.Port < 1 || p.Listen.Port > 65535 {
@@ -92,6 +95,9 @@ func Validate(p *Put) []ValidationError {
 			seenKey[k.ID] = true
 		}
 	}
+	// R13 balance（v0.3.0）：余额展示设置
+	errs = append(errs, ValidateBalance(p.Balance)...)
+
 	return errs
 }
 
@@ -117,6 +123,7 @@ func fileToPut(f *File) *Put {
 		Version:   f.Version,
 		Listen:    f.Listen,
 		Collector: f.Collector,
+		Balance:   f.Balance,
 		Auth:      PutAuth{Mode: f.Auth.Mode},
 	}
 	for i := range f.Providers {

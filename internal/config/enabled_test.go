@@ -11,7 +11,7 @@ import (
 // TestEnabledParseSemantics：PUT 缺 enabled → nil（按启用，兼容旧客户端）；显式 false → 停用。
 func TestEnabledParseSemantics(t *testing.T) {
 	body := func(key string) string {
-		return `{"version":4,"listen":{"host":"127.0.0.1","port":8787},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"deepseek","access_keys":[` + key + `]}]}`
+		return `{"version":5,"listen":{"host":"127.0.0.1","port":8787},"collector":{},"auth":{"mode":"admin"},"providers":[{"platform":"deepseek","access_keys":[` + key + `]}]}`
 	}
 	cases := []struct {
 		name    string

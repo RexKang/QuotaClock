@@ -16,8 +16,12 @@ type putWire struct {
 	Version   int           `json:"version"`
 	Listen    Listen        `json:"listen"`
 	Collector Collector     `json:"collector"`
+	Balance   Balance       `json:"balance"` // v0.3.0
 	Auth      putAuthWire   `json:"auth"`
 	Providers []putProvWire `json:"providers"`
+	// 导出文件自带的人类可读说明（v0.3.0）：容忍并剥离，
+	// 使 `GET /api/config/export` 导出的文件能直接粘回导入框
+	Note string `json:"_note,omitempty"`
 }
 
 type putAuthWire struct {
@@ -66,6 +70,7 @@ func ParsePut(body []byte) (*Put, error) {
 		Version:   w.Version,
 		Listen:    w.Listen,
 		Collector: w.Collector,
+		Balance:   w.Balance,
 		Auth:      PutAuth{Mode: w.Auth.Mode, Password: w.Auth.Password},
 	}
 	if w.Auth.PasswordHash != "" {
