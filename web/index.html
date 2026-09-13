@@ -95,7 +95,12 @@
   .prov-card:not(.collapsed) .pc-head { border-bottom: 1px solid var(--border); }
   .prov-card.collapsed .pc-head { padding-bottom: 2px; }
   .pc-caret { color: var(--muted); font-size: 10px; flex: none; }
-  .pc-head .pc-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pc-head .pc-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* 「已用尽」硬约束标记：红底淡色块，比只改条色更醒目 */
+  .pc-tag {
+    flex: none; font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 4px;
+    color: var(--err); background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.35); white-space: nowrap;
+  }
   .pc-head .pc-name:hover { color: var(--accent); }
   .pc-grow { flex: 1; min-width: 8px; }
   .pc-refresh {
@@ -857,8 +862,8 @@ function balanceSev(v) {
   const p = balancePct(v), c = balanceCfg();
   return p >= c.green ? 0 : p >= c.warn ? 1 : 2;
 }
-function sevColor(sev) { return sev === 1 ? 'var(--warn)' : sev === 2 ? 'var(--err)' : 'var(--ok)'; }
-function sevCls(sev) { return sev === 1 ? 'warn' : sev === 2 ? 'danger' : ''; }
+function sevColor(sev) { return SEV_COLOR[sev] !== undefined ? SEV_COLOR[sev] : 'var(--muted)'; }
+function sevCls(sev) { return SEV_CLS[sev] !== undefined ? SEV_CLS[sev] : ''; }
 
 // 环比：颜色按 slotSeverity(该槽用量%, 该槽时间进度%)，与进度条同源
 function ringSvg(pct, size, sw, color) {
@@ -889,6 +894,43 @@ function balanceOf(lines) {
   if (!bs.length) return null;
   return bs.reduce((a, b) => (Number(b.it.current) || 0) > (Number(a.it.current) || 0) ? b : a);
 }
+// isExhausted 该槽是否已用尽：用量 100%（余额卡看余额 ≤ 0）。
+// 「用尽」要和「跑得快」区分开——前者是硬约束，看板必须显性提示「不能用了」。
+function isExhausted(l) {
+  if (!l || !l.it) return false;
+  if (l.balance) return (Number(l.it.current) || 0) <= 0;
+  return l.pct !== undefined && l.pct >= 100;
+}
+
+// bindingLine 卡片级信号 = 当前**最限制你**的那个区间，而不是固定看月：
+//   ① 有区间用尽 → 取其中**窗口最长**的那个（例：周用尽 + 月 50% → 指向周 100%）——
+//      否则「周 100% 用尽、月 50%」会渲染成绿色的 50%，账户已经不能用、卡片却是健康的；
+//   ② 都没用尽 → 取用量百分比最高的区间（最接近触顶的那个）；
+//   ③ 无数据 → null。
+function bindingLine(lines) {
+  const ex = lines.filter(isExhausted);
+  if (ex.length) {
+    // 窗口最长的那个最说明问题（5h 会自愈、周要等好几天）；lines 顺序是 5h → W → M → 余额
+    return ex[ex.length - 1];
+  }
+  let best = null;
+  for (const l of lines) {
+    if (!l.it) continue;
+    const v = l.balance ? balancePct(l.it.current) : (l.pct === undefined ? -1 : l.pct);
+    const bv = best ? (best.balance ? balancePct(best.it.current) : (best.pct === undefined ? -1 : best.pct)) : -2;
+    if (v > bv) best = l;
+  }
+  return best;
+}
+
+// exhaustedTag 卡片上的「已用尽」标记文案（无则返回空串）
+function exhaustedTag(lines) {
+  const ex = lines.filter(isExhausted);
+  if (!ex.length) return '';
+  const l = ex[ex.length - 1];
+  return (l.balance ? '余额' : (SLOT_SHORT[l.it.label] || l.it.label)) + '已用尽';
+}
+
 function maxLine(lines) {  // 最大区间：有月用月、否则周、再否则 5h；余额卡用余额
   const bal = balanceOf(lines);
   if (bal) return bal;
@@ -985,8 +1027,28 @@ function footHtml(prov) {
     </div>`;
 }
 
+// ringTip 环的悬停说明：写明环指的是哪个区间，并把所有区间用量列出来（可溯源）。
+function ringTip(lines, cur) {
+  const parts = [];
+  for (const l of lines) {
+    if (!l.it || l.balance) continue;
+    const t = l.t !== undefined ? `，时间进度 ${l.t}%` : '';
+    parts.push(`${SLOT_SHORT[l.it.label] || l.it.label} ${l.pct !== undefined ? l.pct + '%' : '--'}${t}`);
+  }
+  const bal = balanceOf(lines);
+  if (bal) {
+    parts.push(`账户余额 ${fmtNum(bal.it.current)}${bal.it.unit ? ' ' + bal.it.unit : ''}` +
+      `（满额 ${balanceCfg().full} → ${Math.round(balancePct(bal.it.current) * 10) / 10}%）`);
+  }
+  const head = cur.balance
+    ? '账户余额'
+    : `当前最紧：${SLOT_SHORT[cur.it.label] || cur.it.label} ${cur.pct !== undefined ? cur.pct + '%' : '--'}`;
+  const tail = isExhausted(cur) ? '｜已用尽，暂时无法继续调用' : '';
+  return `${head}｜${parts.join('；')}${tail}`;
+}
+
 function ringMainHtml(lines) {
-  const max = maxLine(lines);
+  const max = bindingLine(lines);
   // 无数据也占住环的位置：头部高度与其他卡一致，槽位纵向位置才能跨卡对齐
   if (!max || !max.it) {
     return `<div class="pc-ring-main" title="尚未采集到数据">${ringSvg(0, 46, 4, '#39414f')}
@@ -999,7 +1061,7 @@ function ringMainHtml(lines) {
       <span class="val sm">${esc(v)}</span><span class="cap">余额</span></div>`;
   }
   const pct = max.pct;
-  return `<div class="pc-ring-main" title="${SLOT_LABEL[max.it.label] || ''} 用量 ${pct !== undefined ? pct + '%' : '--'}（时间进度 ${max.t !== undefined ? max.t + '%' : '--'}）">
+  return `<div class="pc-ring-main" title="${ringTip(lines, max)}">
       ${ringSvg(pct || 0, 46, 4, lineColor(max))}
       <span class="val">${pct !== undefined ? pct : '--'}<i>%</i></span>
       <span class="cap">${SLOT_CODE[max.it.label] || esc(max.it.label)}</span></div>`;
@@ -1029,6 +1091,8 @@ function renderHomeGrid() {
     const lines = SLOT_ORDER.map(k => slotLine(items.find(it => it.label === k)))
       .concat([slotLine(items.find(it => it.label === '余额'))]);
     const anyData = lines.some(l => l.it);
+    // 「已用尽」是硬约束（不能用了），必须在卡面直接说出来，不能只靠颜色
+    const exTag = anyData ? exhaustedTag(lines) : '';
 
     // 未采集/异常的说明：正文不写长句（固定三槽 + footer 已经够读），长句进 title
     let note = '';
@@ -1044,6 +1108,7 @@ function renderHomeGrid() {
       <div class="pc-head" data-toggle>
         <span class="pc-caret">${collapsed ? '▸' : '▾'}</span>
         <span class="pc-name" data-detail>${esc(prov.name)}</span>
+        ${exTag ? `<span class="pc-tag" title="${esc(exTag)}">${esc(exTag)}</span>` : ''}
         <span class="pc-grow"></span>
         ${collapsed ? `<span class="pc-rings-mini">${miniRingsHtml(lines)}</span>` : ''}
         ${collapsed ? '' : ringMainHtml(lines)}
@@ -1056,7 +1121,7 @@ function renderHomeGrid() {
     // 整卡的 title：把长句（含状态、错误原因、重试倒计时）放这里，正文只留一行
     const ra = (prov.error && prov.error.retry_after_s) || 0;
     if (ra > 0) retryAt[prov.id] = Date.now() + ra * 1000;
-    const longTip = [prov.name, meta.text, note, prov.error ? (prov.error.message || prov.error.code) : '',
+    const longTip = [prov.name, meta.text, exTag, note, prov.error ? (prov.error.message || prov.error.code) : '',
       prov.last_success_at ? ('上次成功 ' + fmtTime(prov.last_success_at)) : ''].filter(Boolean).join(' · ');
     card.title = longTip;
     card.innerHTML = head + body + footHtml(prov);
@@ -1111,7 +1176,14 @@ function slotSeverity(percent, tPct) {
   if (rem <= 0) return 2;
   return (lead / rem) < 0.3 ? 1 : 2;
 }
-const SEV_BAR = { 0: '', 1: 'warn', 2: 'danger', 3: 'danger' };
+// 严重度档位（唯一真源）：0 绿 / 1 黄 / 2 红（跑在时间进度前面）/ 3 红（已用尽，用量 100%）。
+// 一律表驱动：v0.3.0 初版把映射写成 if/else 分支漏了 3，结果「用量 100%」渲染成绿色（用户实测反馈）。
+// 未登记档位的兜底是「中性灰」而不是绿 —— 绿色是「健康」的断言，不能被未知值白拿。
+const SEV_CLS = { 0: '', 1: 'warn', 2: 'danger', 3: 'danger' };
+const SEV_COLOR = { 0: 'var(--ok)', 1: 'var(--warn)', 2: 'var(--err)', 3: 'var(--err)' };
+
+// 区间短名（卡片上的「已用尽」标记要短）
+const SLOT_SHORT = { '5小时': '5 小时额度', '周': '周额度', '月': '月额度' };
 
 
 /* ---------- 详情页（原始数据视图） ---------- */
@@ -1311,13 +1383,22 @@ async function pollNow(force) {
   }
 }
 
+// providerExhaustedTag 某 provider 是否有区间用尽（有则返回标记文案，供状态条统计）。
+function providerExhaustedTag(prov) {
+  if (!prov || prov.data === null || prov.data === undefined) return '';
+  const items = extractQuotaItems(prov);
+  const lines = SLOT_ORDER.map(k => slotLine(items.find(it => it.label === k)))
+    .concat([slotLine(items.find(it => it.label === '余额'))]);
+  return lines.some(l => l.it) ? exhaustedTag(lines) : '';
+}
+
 // renderHomeStatus 首页状态条（v0.3.0）：chip 形式、随窗口宽度自动换行。
 // 长句一律撤掉，只留计数与分类；「上次成功」取各卡 last_success_at 的最大值。
 function renderHomeStatus(j) {
   const provs = (j && j.providers) || [];
   const visible = provs.filter(p => p.status !== 'disabled');
   const disabled = provs.length - visible.length;
-  const counts = { ok: 0, cached: 0, 异常: 0, failed: 0, token_invalid: 0, waiting: 0 };
+  const counts = { ok: 0, cached: 0, 异常: 0, failed: 0, token_invalid: 0, waiting: 0, exhausted: 0 };
   let lastOK = null;
   for (const p of visible) {
     const code = (p.error && p.error.code) || '';
@@ -1328,6 +1409,7 @@ function renderHomeStatus(j) {
     else if (p.status === 'token_invalid') counts.token_invalid++;
     else if (p.status === 'failed') counts.failed++;
     if (p.last_success_at && (!lastOK || p.last_success_at > lastOK)) lastOK = p.last_success_at;
+    if (providerExhaustedTag(p)) counts.exhausted++;
   }
   const chips = [];
   chips.push(`<span class="chip">${visible.length} 个 API Key 在采${disabled ? ` · ${disabled} 已停用` : ''}</span>`);
@@ -1336,6 +1418,7 @@ function renderHomeStatus(j) {
   if (counts.failed) chips.push(`<span class="chip err">${counts.failed} 采集失败</span>`);
   if (counts.token_invalid) chips.push(`<span class="chip err">${counts.token_invalid} Key 失效</span>`);
   if (counts.waiting) chips.push(`<span class="chip wait">${counts.waiting} 等待采集</span>`);
+  if (counts.exhausted) chips.push(`<span class="chip err" title="这些 Key 的某个区间额度已用满（如周额度 100%），暂时无法继续调用">${counts.exhausted} 额度已用尽</span>`);
   if (!visible.length) chips.push(`<span class="chip wait">全部已停用</span>`);
   // 口径说明写在 title 里：这是**后端**最近一次成功采集的时刻（各 Key last_success_at 取最大），
   // 不是页面拉取快照的时刻 —— 后者就等于「现在」，没有信息量。
