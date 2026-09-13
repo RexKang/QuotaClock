@@ -30,13 +30,17 @@
     padding: 24px; min-height: 100vh;
     display: flex; flex-direction: column;
   }
-  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-  h1 { font-size: 19px; font-weight: 600; }
-  h1 .logo { width: 26px; height: 26px; vertical-align: -7px; margin-right: 8px; }
-  h1 small { color: var(--muted); font-weight: 400; font-size: 16px; margin-left: 8px; }
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  h1 { font-size: 16px; font-weight: 600; }
+  h1 .logo { width: 20px; height: 20px; vertical-align: -5px; margin-right: 7px; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 12.5px; margin-left: 8px; }
+  /* 页头控件单独收窄：全局 button/input 的 16px 是给设置表单用的，
+     2.5K 屏下页头跟着变大会显得「菜单比内容还大」（用户反馈），故此处压到 13.5px */
+  header > button { font-size: 13.5px; padding: 6px 13px; }
+  header > select { font-size: 13.5px; padding: 6px 10px; }
 
-  .nav-tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
-  .nav-tabs button { background: none; border: none; color: var(--muted); padding: 7px 16px; border-radius: 7px; cursor: pointer; font-size: 16px; }
+  .nav-tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+  .nav-tabs button { background: none; border: none; color: var(--muted); padding: 5px 11px; border-radius: 7px; cursor: pointer; font-size: 13.5px; }
   .nav-tabs button.active { background: var(--accent); color: #fff; }
 
   select, input[type=text], input[type=password], input[type=number], textarea {
@@ -54,7 +58,7 @@
   button.ghost { background: var(--card2); border: 1px solid var(--border); color: var(--text); }
   button.danger { background: #7f1d1d; }
 
-  .status-line { color: var(--muted); font-size: 16px; margin-bottom: 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .status-line { color: var(--muted); font-size: 13px; margin-bottom: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .status-line .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
   .status-line .dot.ok { background: var(--ok); }
   .status-line .dot.err { background: var(--err); }
@@ -95,7 +99,7 @@
   .prov-card:not(.collapsed) .pc-head { border-bottom: 1px solid var(--border); }
   .prov-card.collapsed .pc-head { padding-bottom: 2px; }
   .pc-caret { color: var(--muted); font-size: 10px; flex: none; }
-  .pc-head .pc-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .pc-head .pc-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   /* 「已用尽」硬约束标记：红底淡色块，比只改条色更醒目 */
   .pc-tag {
     flex: none; font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 4px;
@@ -141,9 +145,9 @@
   }
   .pc-slot + .pc-slot { border-top: 1px solid #1e242d; }
   .pc-sh { display: flex; align-items: baseline; gap: 6px; height: 20px; }
-  .pc-sl { font-size: 11.5px; color: #cdd5e2; line-height: 20px; }
-  .pc-sr { font-size: 11px; color: #a3adbd; }
-  .pc-sp { font-size: 13px; font-weight: 700; line-height: 20px; color: #f2f5fa; margin-left: auto; }
+  .pc-sl { font-size: 12px; color: #cdd5e2; line-height: 20px; }
+  .pc-sr { font-size: 11.5px; color: #a3adbd; }
+  .pc-sp { font-size: 14px; font-weight: 700; line-height: 20px; color: #f2f5fa; margin-left: auto; }
   .pc-slot.pc-empty .pc-sl, .pc-slot.pc-empty .pc-sp { color: #4a5361; font-weight: 500; }  /* 类名加前缀：.empty 是全局空态样式（padding:60px 0），撞上会把槽位撑到 120px */
   .pc-bar { height: 6px; border-radius: 3px; background: #232a34; overflow: hidden; }
   .pc-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--ok); }
@@ -151,7 +155,7 @@
   .pc-bar > i.danger { background: var(--err); }
   .pc-tbar { height: 3px; border-radius: 2px; background: #1d232c; overflow: hidden; }
   .pc-tbar > i { display: block; height: 100%; background: #6b7684; }
-  .pc-tp { height: 15px; font-size: 10.5px; color: #98a3b3; opacity: 0; transition: opacity .12s; }
+  .pc-tp { height: 15px; font-size: 11px; color: #98a3b3; opacity: 0; transition: opacity .12s; }
   .pc-slot:hover .pc-tp { opacity: 1; }   /* 时间百分比：hover 才显示（v0.3.0） */
   .pc-tp b { color: var(--muted); font-weight: 500; }
   .pc-note { padding: 10px 12px; font-size: 12px; color: var(--muted); line-height: 1.6; }
@@ -159,7 +163,7 @@
   /* footer：状态灯（悬停看原因）+ 该 Key 的采集时间 */
   .pc-foot {
     flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 12px;
-    border-top: 1px solid var(--border); font-size: 11.5px; color: #a3adbd; background: #141821;
+    border-top: 1px solid var(--border); font-size: 12px; color: #a3adbd; background: #141821;
   }
   .pc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--ok); cursor: help; }
   .pc-dot.err { background: var(--err); }
@@ -251,7 +255,7 @@
   .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 10px; font-size: 16px; z-index: 99; opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 90vw; }
   .toast.show { opacity: 1; }
 
-  footer { margin-top: auto; padding-top: 20px; color: var(--muted); font-size: 14px; font-family: var(--mono); display: flex; gap: 18px; flex-wrap: wrap; }
+  footer { margin-top: auto; padding-top: 18px; color: var(--muted); font-size: 12.5px; font-family: var(--mono); display: flex; gap: 16px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -862,6 +866,14 @@ function balanceSev(v) {
   const p = balancePct(v), c = balanceCfg();
   return p >= c.green ? 0 : p >= c.warn ? 1 : 2;
 }
+// currencyMark 余额环的环下标记：用币种符号（￥/$）而不是「余额」二字（用户要求）。
+// 接口给的是 currency（CNY / USD），认不出时按人民币。
+function currencyMark(unit) {
+  const u = String(unit || '').toUpperCase();
+  if (u.includes('USD')) return '$';
+  if (u.includes('EUR')) return '€';
+  return '￥';
+}
 function sevColor(sev) { return SEV_COLOR[sev] !== undefined ? SEV_COLOR[sev] : 'var(--muted)'; }
 function sevCls(sev) { return SEV_CLS[sev] !== undefined ? SEV_CLS[sev] : ''; }
 
@@ -907,19 +919,36 @@ function isExhausted(l) {
 //      否则「周 100% 用尽、月 50%」会渲染成绿色的 50%，账户已经不能用、卡片却是健康的；
 //   ② 都没用尽 → 取用量百分比最高的区间（最接近触顶的那个）；
 //   ③ 无数据 → null。
+// 窗口长短（平局时窗口长的优先：越难恢复、越该被顶到环上）
+const SLOT_WINDOW_RANK = { '5小时': 1, '周': 2, '月': 3 };
+
+function winRank(l) { return (l && l.it && SLOT_WINDOW_RANK[l.it.label]) || 0; }
+function remainAbs(l) {   // 剩余绝对量（拿不到 total/current 时为 Infinity，即无法比较）
+  const t = l.it && l.it.total, c = l.it && l.it.current;
+  return (typeof t === 'number' && typeof c === 'number') ? t - c : Infinity;
+}
+// tighter 判断 a 是否比 b 更紧（＝剩余更少）：
+//   ① 剩余比例小的更紧（＝用量% 大）② 比例打平 → 剩余绝对量小的更紧 ③ 仍打平 → 窗口长的更紧
+function tighter(a, b) {
+  const ua = a.pct === undefined ? -1 : a.pct, ub = b.pct === undefined ? -1 : b.pct;
+  if (ua !== ub) return ua > ub;
+  const ra = remainAbs(a), rb = remainAbs(b);
+  if (ra !== rb) return ra < rb;
+  return winRank(a) > winRank(b);
+}
+
+// bindingLine 环指向「剩余最少」的那个区间（用户口径，r5.2 修订）。
+// 已用尽（100%）→ 取其中窗口最长的那个；否则按 tighter() 逐项比。
+// 为什么强调「剩余」而不是「用量% 最大」：用量% 打平时，谁的剩余绝对额度更少才是真约束——
+// 例：智谱三段都 1%（月 7/1000、另两段只有百分比），旧实现取「第一个最大值」落到 5 小时，
+// 看着像随机；现在平局比剩余绝对量，落到月（993 vs 9900）。
 function bindingLine(lines) {
   const ex = lines.filter(isExhausted);
-  if (ex.length) {
-    // 窗口最长的那个最说明问题（5h 会自愈、周要等好几天）；lines 顺序是 5h → W → M → 余额
-    return ex[ex.length - 1];
-  }
-  let best = null;
-  for (const l of lines) {
-    if (!l.it) continue;
-    const v = l.balance ? balancePct(l.it.current) : (l.pct === undefined ? -1 : l.pct);
-    const bv = best ? (best.balance ? balancePct(best.it.current) : (best.pct === undefined ? -1 : best.pct)) : -2;
-    if (v > bv) best = l;
-  }
+  if (ex.length) return ex.reduce((a, b) => (winRank(b) > winRank(a) ? b : a));
+  const cand = lines.filter(l => l.it && !l.balance);
+  if (!cand.length) return balanceOf(lines);
+  let best = cand[0];
+  for (let i = 1; i < cand.length; i++) if (tighter(cand[i], best)) best = cand[i];
   return best;
 }
 
@@ -1004,7 +1033,7 @@ function miniRingsHtml(lines) {
     const v = fmtNum(bal.it.current);
     return `<div class="pc-rmini" title="账户余额 ${esc(v)}${bal.it.unit ? ' ' + esc(bal.it.unit) : ''}（满额 ${balanceCfg().full} → ${(Math.round(balancePct(bal.it.current) * 10) / 10)}%）">
       ${ringSvg(balancePct(bal.it.current), 30, 3.5, sevColor(balanceSev(bal.it.current)))}
-      <span class="v">${esc(v)}</span><span class="l">余额</span></div>`;
+      <span class="v">${esc(v)}</span><span class="l">${esc(currencyMark(bal.it.unit))}</span></div>`;
   }
   return lines.filter(l => l.it && l.pct !== undefined).map(l =>
     `<div class="pc-rmini" title="${SLOT_LABEL[l.it.label] || ''} ${l.pct}%（时间进度 ${l.t !== undefined ? l.t + '%' : '--'}）">
@@ -1058,7 +1087,7 @@ function ringMainHtml(lines) {
     const v = fmtNum(max.it.current);
     return `<div class="pc-ring-main" title="账户余额 ${esc(v)}${max.it.unit ? ' ' + esc(max.it.unit) : ''}（满额 ${balanceCfg().full} → ${(Math.round(balancePct(max.it.current) * 10) / 10)}%）">
       ${ringSvg(balancePct(max.it.current), 46, 4, sevColor(balanceSev(max.it.current)))}
-      <span class="val sm">${esc(v)}</span><span class="cap">余额</span></div>`;
+      <span class="val sm">${esc(v)}</span><span class="cap">${esc(currencyMark(max.it.unit))}</span></div>`;
   }
   const pct = max.pct;
   return `<div class="pc-ring-main" title="${ringTip(lines, max)}">
