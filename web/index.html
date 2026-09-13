@@ -252,7 +252,7 @@
 <body>
 
 <header>
-  <h1><img class="logo" src="/icons/favicon.svg" alt="">QuotaClock<small>服务端缓存 · 多平台额度总览</small></h1>
+  <h1><img class="logo" src="/icons/favicon.svg" alt="">QuotaClock</h1>
   <div class="nav-tabs">
     <button id="tabHome" class="active">总览</button>
     <button id="tabDetail">详情</button>
@@ -269,7 +269,6 @@
 <div id="viewHome">
   <div class="status-line">
     <span id="connHome"><span class="dot"></span>未连接</span>
-    <span id="pollInfo"></span>
   </div>
   <div id="homeGrid" class="home-grid"></div>
   <div id="emptyHome" class="empty">还没有配置任何平台。到「设置」里添加一个平台的 token，保存后采集器会自动拉取数据~</div>
@@ -432,8 +431,8 @@
 
 <footer>
   <span>QuotaClock <span id="ftVer">--</span></span>
-  <span>上次成功采集：<span id="ftLast">--</span></span>
-  <span>每 <span id="ftPoll">60</span>s 轮询服务端缓存（启动及未就绪时 1s 快速刷新）</span>
+  <span>服务端缓存 · 多平台额度总览</span>
+  <span>每 <span id="ftPoll">30</span>s 轮询服务端缓存（启动及未就绪时 1s 快速刷新）<span id="pollInfo"></span></span>
 </footer>
 
 <script>
@@ -1207,11 +1206,10 @@ function renderHeaderAuth() {
 }
 function renderFooter() {
   $('#ftVer').textContent = (snap && snap.version) || '--';
-  let maxT = null;
-  for (const p of (snap && snap.providers) || []) {
-    if (p.last_success_at && (!maxT || p.last_success_at > maxT)) maxT = p.last_success_at;
-  }
-  $('#ftLast').textContent = maxT ? fmtTime(maxT) : '--';
+  // 轮询秒数由常量驱动：v0.3.0 从 60s 改 30s 时页脚文案写死过 60，别再让文案与常量各说一套
+  $('#ftPoll').textContent = Math.round(POLL_INTERVAL_MS / 1000);
+  // 页脚不再单独显示「上次成功采集」：与顶部状态 chip 同口径（各 Key last_success_at 取最大），
+  // 保留一处即可 —— 页脚这行改为放页面副标题
 }
 
 async function refreshCfgView() {
@@ -1253,12 +1251,16 @@ function enterFastPoll() {
   fastDeadline = Math.min(now + COLD_START_GRACE_MS, fastCap);
 }
 
+// renderPollInfo 页脚里的「快照版本 + 当前轮询节奏」。
+// revision = 后端快照版本号（渲染态任一字段变化即 +1，只增不减；重启归 1），
+// 它是「数据有没有变」的判重依据，平时只作诊断信息，故放在页脚而不是看板顶部。
 function renderPollInfo() {
-  const base = 'revision ' + (snap ? snap.revision : 0);
+  if (!snap) { $('#pollInfo').textContent = ''; return; }
+  const r = '快照 r' + snap.revision;
   if (Date.now() < fastDeadline) {
-    $('#pollInfo').textContent = `${base} · 冷启动快速刷新，剩余 ${Math.max(1, Math.ceil((fastDeadline - Date.now()) / 1000))}s`;
+    $('#pollInfo').textContent = `｜${r} · 1s 快速刷新中（剩 ${Math.max(1, Math.ceil((fastDeadline - Date.now()) / 1000))}s）`;
   } else {
-    $('#pollInfo').textContent = base;
+    $('#pollInfo').textContent = `｜${r}`;
   }
 }
 
@@ -1335,7 +1337,10 @@ function renderHomeStatus(j) {
   if (counts.token_invalid) chips.push(`<span class="chip err">${counts.token_invalid} Key 失效</span>`);
   if (counts.waiting) chips.push(`<span class="chip wait">${counts.waiting} 等待采集</span>`);
   if (!visible.length) chips.push(`<span class="chip wait">全部已停用</span>`);
-  chips.push(`<span class="chip dim">${lastOK ? '上次成功 ' + esc(fmtTime(lastOK)) : '尚无成功采集'}</span>`);
+  // 口径说明写在 title 里：这是**后端**最近一次成功采集的时刻（各 Key last_success_at 取最大），
+  // 不是页面拉取快照的时刻 —— 后者就等于「现在」，没有信息量。
+  const lastTip = '各 API Key 中最近一次成功采集的时间（后端采集时刻，服务端本地时区）';
+  chips.push(`<span class="chip dim" title="${esc(lastTip)}">${lastOK ? '上次成功 ' + esc(fmtTime(lastOK)) : '尚无成功采集'}</span>`);
   $('#connHome').innerHTML = chips.join('');
 }
 
